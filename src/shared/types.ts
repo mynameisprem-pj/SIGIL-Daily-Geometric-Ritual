@@ -127,6 +127,25 @@ export interface PuzzleCompletionStats {
   readonly elapsedMs: number;
 }
 
+export type MasteryGrade =
+  | 'grand-lapidary'
+  | 'master-engraver'
+  | 'adept-wayfinder'
+  | 'stone-initiate';
+
+export interface ScoreBreakdown {
+  readonly totalScore: number;
+  readonly baseScore: number;
+  readonly moveScore: number;
+  readonly speedScore: number;
+  readonly perfectBonus: number;
+  readonly excessMoves: number;
+  readonly parTimeMs: number;
+  readonly isPerfect: boolean;
+  readonly grade: MasteryGrade;
+  readonly gradeLabel: string;
+}
+
 export interface SessionInitResponse {
   status: 'ok';
   postId: string;

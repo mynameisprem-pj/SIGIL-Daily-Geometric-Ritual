@@ -7,7 +7,9 @@
 
     "tsBuildInfoFile": "../dist/types/shared/tsconfig.tsbuildinfo",
 
-    "rootDir": "../src/shared"
+    "rootDir": "../src/shared",
+
+    "types": ["node"]
   },
   "include": ["../src/shared/**/*"],
   "exclude": []

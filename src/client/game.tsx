@@ -1,32 +1,52 @@
 import './index.css';
 
-import { StrictMode, useState } from 'react';
+import { StrictMode, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { calculateSigilScore } from '../shared/scoring';
+import type { GameMode } from '../shared/types';
 import { LiveTimer } from './components/LiveTimer';
-import { formatDurationMs } from './components/timerUtils';
 import { SigilStage } from './components/SigilStage';
 import { SoundToggleButton } from './components/SoundToggleButton';
-import { PROTOTYPE_SIGILS } from './engine/prototypeSigils';
+import { formatDurationMs } from './components/timerUtils';
+import { useDailyPack } from './hooks/useDailyPack';
 import { usePuzzleEngine } from './hooks/usePuzzleEngine';
 import { useSession } from './hooks/useSession';
 
+const DAILY_MODES: readonly { mode: GameMode; shortLabel: string }[] = [
+  { mode: 'daily', shortLabel: 'Daily' },
+  { mode: 'bonus-1', shortLabel: 'Bonus I' },
+  { mode: 'bonus-2', shortLabel: 'Bonus II' },
+];
+
 export const App = () => {
   const { session } = useSession();
-  const [sigilIndex, setSigilIndex] = useState(0);
+  const daily = useDailyPack(session?.dateKey, session?.username);
   const [reshuffleCount, setReshuffleCount] = useState(0);
 
-  const activePuzzle = PROTOTYPE_SIGILS[sigilIndex] ?? PROTOTYPE_SIGILS[0]!;
-  const seedKey = `${session?.dateKey ?? '2026-11-21'}:s${reshuffleCount}`;
+  const { activeEntry, activeMode, selectMode } = daily;
+  const seedKey = `${activeEntry.seed}:r${reshuffleCount}`;
 
-  const engine = usePuzzleEngine(activePuzzle, seedKey);
+  const engine = usePuzzleEngine(activeEntry.puzzle, seedKey);
   const { completion } = engine;
 
-  const handleNextPrototype = () => {
-    setSigilIndex((idx) => (idx + 1) % PROTOTYPE_SIGILS.length);
-  };
+  const scoreBreakdown = useMemo(() => {
+    if (!completion.isComplete) return null;
+    return calculateSigilScore({
+      moves: completion.moves,
+      parMoves: completion.parMoves,
+      elapsedMs: completion.elapsedMs,
+      pieceCount: completion.totalCount,
+    });
+  }, [completion]);
 
   const handleReset = () => {
     setReshuffleCount((c) => c + 1);
+  };
+
+  const handleNextDailyTier = () => {
+    if (activeMode === 'daily') selectMode('bonus-1');
+    else if (activeMode === 'bonus-1') selectMode('bonus-2');
+    else selectMode('daily');
   };
 
   return (
@@ -36,20 +56,20 @@ export const App = () => {
         <div className="flex flex-col">
           <div className="flex items-center gap-2">
             <span className="text-[11px] font-mono tracking-[0.18em] uppercase text-brass">
-              #{String(session?.edition ?? 1).padStart(3, '0')}
+              #{String(activeEntry.edition).padStart(3, '0')}
             </span>
             <span className="text-stone-400">·</span>
             <h1
               className="text-sm sm:text-base font-semibold tracking-[0.14em] uppercase text-alabaster"
               style={{ fontFamily: 'var(--font-display)' }}
             >
-              {activePuzzle.name}
+              {activeEntry.puzzle.name}
             </h1>
           </div>
           <span className="text-[11px] text-stone-300 tracking-wide">
             {completion.isComplete
-              ? activePuzzle.subtitle
-              : `${completion.lockedCount} of ${completion.totalCount} inlaid`}
+              ? activeEntry.puzzle.subtitle
+              : `${activeEntry.tierLabel} · ${completion.lockedCount}/${completion.totalCount} inlaid`}
           </span>
         </div>
 
@@ -89,9 +109,9 @@ export const App = () => {
         previewCanSnap={engine.previewCanSnap}
       />
 
-      {/* Minimal Bottom Ritual Bar */}
+      {/* Minimal Bottom Ritual Bar (Upgraded to Full Authoritative Result Card in Phase 4) */}
       <footer className="w-full max-w-[496px] min-h-[48px] flex items-center justify-between text-xs">
-        {completion.isComplete ? (
+        {completion.isComplete && scoreBreakdown ? (
           <div
             className={`animate-reveal-rise w-full flex items-center justify-between gap-3 px-4 py-2.5 rounded-2xl bg-basalt-900 border ${
               completion.isPerfect ? 'border-jade/45' : 'border-brass/45'
@@ -103,50 +123,59 @@ export const App = () => {
                   completion.isPerfect ? 'text-jade' : 'text-brass'
                 }`}
               >
-                {completion.isPerfect
-                  ? 'Perfect Reconstruction'
-                  : 'Sigil Ignited'}
+                {scoreBreakdown.gradeLabel} · {scoreBreakdown.totalScore} PTS
               </span>
               <span className="hidden sm:inline text-stone-400">·</span>
               <span className="text-stone-300 font-mono text-[11px]">
-                {engine.moves} moves · {formatDurationMs(completion.elapsedMs)}
+                {engine.moves} mv · {formatDurationMs(completion.elapsedMs)}
               </span>
             </div>
 
             <button
               type="button"
-              onClick={handleNextPrototype}
+              onClick={handleNextDailyTier}
               className={`px-4 py-1.5 rounded-full text-basalt-950 font-bold tracking-[0.14em] uppercase cursor-pointer transition-colors ${
                 completion.isPerfect
                   ? 'bg-jade hover:bg-jade-bright'
                   : 'bg-brass hover:bg-brass-bright'
               }`}
             >
-              Next Sigil
+              {activeMode === 'daily'
+                ? 'Bonus I'
+                : activeMode === 'bonus-1'
+                  ? 'Bonus II'
+                  : 'Main Daily'}
             </button>
           </div>
         ) : (
           <>
-            <span className="text-stone-300 tracking-wide">
-              Drag to inlay · Tap piece to rotate 45°
-            </span>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleReset}
-                className="px-3 py-1.5 rounded-lg bg-basalt-900 border border-white/10 hover:border-brass/40 text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
-              >
-                Scatter
-              </button>
-              <button
-                type="button"
-                onClick={handleNextPrototype}
-                className="px-3 py-1.5 rounded-lg bg-basalt-900 border border-white/10 hover:border-brass/40 text-stone-300 hover:text-alabaster font-mono transition-colors cursor-pointer"
-              >
-                {sigilIndex + 1}/{PROTOTYPE_SIGILS.length}
-              </button>
+            <div className="flex items-center gap-1.5">
+              {DAILY_MODES.map((item) => {
+                const isActive = activeMode === item.mode;
+                return (
+                  <button
+                    key={item.mode}
+                    type="button"
+                    onClick={() => selectMode(item.mode)}
+                    className={`px-2.5 py-1.5 rounded-lg border text-[11px] tracking-wider uppercase transition-colors cursor-pointer ${
+                      isActive
+                        ? 'bg-basalt-850 border-brass/50 text-brass font-semibold'
+                        : 'bg-basalt-900 border-white/8 text-stone-300 hover:text-alabaster'
+                    }`}
+                  >
+                    {item.shortLabel}
+                  </button>
+                );
+              })}
             </div>
+
+            <button
+              type="button"
+              onClick={handleReset}
+              className="px-3 py-1.5 rounded-lg bg-basalt-900 border border-white/10 hover:border-brass/40 text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
+            >
+              Scatter
+            </button>
           </>
         )}
       </footer>

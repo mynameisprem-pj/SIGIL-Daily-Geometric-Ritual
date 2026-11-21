@@ -1,14 +1,18 @@
 import './index.css';
 
 import { requestExpandedMode } from '@devvit/web/client';
-import { StrictMode } from 'react';
+import { StrictMode, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
-import { PROTOTYPE_SIGILS } from './engine/prototypeSigils';
+import { getTodayUtcDateKey } from '../shared/constants';
+import { buildDailySigilPack } from './engine/dailyPack';
 import { useSession } from './hooks/useSession';
 
 export const Splash = () => {
   const { session } = useSession();
-  const featuredSigil = PROTOTYPE_SIGILS[1] ?? PROTOTYPE_SIGILS[0]!;
+  const dateKey = session?.dateKey ?? getTodayUtcDateKey();
+
+  const dailyPack = useMemo(() => buildDailySigilPack(dateKey), [dateKey]);
+  const featuredSigil = dailyPack.main.puzzle;
 
   return (
     <button
@@ -22,10 +26,10 @@ export const Splash = () => {
       {/* Top Engraved Eyebrow */}
       <header className="z-10 flex items-center gap-2.5 text-[11px] font-medium tracking-[0.24em] uppercase text-stone-300">
         <span className="text-brass font-mono">
-          #{String(session?.edition ?? 1).padStart(3, '0')}
+          #{String(dailyPack.edition).padStart(3, '0')}
         </span>
         <span className="w-1 h-1 rounded-full bg-brass/70" />
-        <span>DAILY GEOMETRIC RECONSTRUCTION</span>
+        <span>{dailyPack.main.tierLabel}</span>
       </header>
 
       {/* Center Medallion Preview + Engraved Title */}
@@ -80,7 +84,7 @@ export const Splash = () => {
             SIGIL
           </h1>
           <p className="text-xs text-stone-300 tracking-wide">
-            Rotate and inlay scattered strokes to ignite the rune
+            {featuredSigil.name} · Rotate and inlay strokes to ignite
           </p>
         </div>
       </div>
