@@ -5,23 +5,31 @@ import { createRoot } from 'react-dom/client';
 import { calculateSigilScore } from '../shared/scoring';
 import type { PuzzleCompletionStats } from '../shared/types';
 import { LiveTimer } from './components/LiveTimer';
-import { type NextActionConfig, ResultCard } from './components/ResultCard';
-import {
-  type CompletedSealRecord,
-  SanctumDrawer,
-} from './components/SanctumDrawer';
+import { ResultCard } from './components/ResultCard';
+import type { NextActionConfig } from './components/resultTypes';
+import { SanctumDrawer } from './components/SanctumDrawer';
+import type {
+  CompletedSealRecord,
+  SanctumTab,
+} from './components/sanctumTypes';
 import { SigilStage } from './components/SigilStage';
 import { SoundToggleButton } from './components/SoundToggleButton';
 import { useDailyPack } from './hooks/useDailyPack';
 import { usePuzzleEngine } from './hooks/usePuzzleEngine';
 import { useSession } from './hooks/useSession';
+import {
+  fetchDailyLeaderboard,
+  submitPuzzleCompletion,
+} from './utils/apiClient';
 
 export const App = () => {
-  const { session } = useSession();
+  const { session, updateSession } = useSession();
   const daily = useDailyPack(session?.dateKey, session?.username);
+
   const [reshuffleCount, setReshuffleCount] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [completedRecords, setCompletedRecords] = useState<
+  const [drawerTab, setDrawerTab] = useState<SanctumTab>('today');
+  const [localRecords, setLocalRecords] = useState<
     Map<string, CompletedSealRecord>
   >(() => new Map());
 
@@ -36,7 +44,46 @@ export const App = () => {
     advanceZen,
   } = daily;
 
-  // Event-driven completion handler (zero cascading useEffect renders!)
+  const serverRecords = session?.completedRecords;
+  const sessionDateKey = session?.dateKey;
+  const sessionDailyCompleted = session?.dailyCompleted ?? false;
+  const sessionStreak = session?.streak ?? 0;
+
+  // Pure derived merge of persisted Redis records + optimistic in-session completions
+  const completedRecords = useMemo(() => {
+    const merged = new Map<string, CompletedSealRecord>();
+
+    if (serverRecords) {
+      for (const rec of serverRecords) {
+        merged.set(rec.seed, {
+          seed: rec.seed,
+          name: rec.name,
+          silhouettePathD: rec.silhouettePathD,
+          isPerfect: rec.isPerfect,
+          bestScore: rec.bestScore,
+        });
+      }
+    }
+
+    for (const [seed, local] of localRecords.entries()) {
+      const prev = merged.get(seed);
+      if (!prev) {
+        merged.set(seed, local);
+      } else {
+        merged.set(seed, {
+          seed,
+          name: local.name,
+          silhouettePathD: local.silhouettePathD,
+          isPerfect: prev.isPerfect || local.isPerfect,
+          bestScore: Math.max(prev.bestScore, local.bestScore),
+        });
+      }
+    }
+
+    return merged;
+  }, [localRecords, serverRecords]);
+
+  // Event-driven completion handler: optimistic update + background Devvit Redis POST
   const handlePuzzleComplete = useCallback(
     (stats: PuzzleCompletionStats) => {
       const breakdown = calculateSigilScore({
@@ -46,16 +93,8 @@ export const App = () => {
         pieceCount: stats.totalCount,
       });
 
-      setCompletedRecords((prev) => {
+      setLocalRecords((prev) => {
         const existing = prev.get(activeEntry.seed);
-        if (
-          existing &&
-          existing.bestScore >= breakdown.totalScore &&
-          (existing.isPerfect || !breakdown.isPerfect)
-        ) {
-          return prev;
-        }
-
         const next = new Map(prev);
         next.set(activeEntry.seed, {
           seed: activeEntry.seed,
@@ -66,13 +105,62 @@ export const App = () => {
         });
         return next;
       });
+
+      void submitPuzzleCompletion({
+        mode: activeEntry.mode,
+        dateKey: activeEntry.dateKey,
+        edition: activeEntry.edition,
+        seed: activeEntry.seed,
+        sigilName: activeEntry.puzzle.name,
+        silhouettePathD: activeEntry.puzzle.unifiedSilhouettePathD,
+        pieceCount: stats.totalCount,
+        moves: stats.moves,
+        parMoves: stats.parMoves,
+        elapsedMs: stats.elapsedMs,
+      }).then((serverRes) => {
+        if (!serverRes) return;
+
+        updateSession((prev) => {
+          const filteredRecords = prev.completedRecords.filter(
+            (r) => r.seed !== serverRes.record.seed
+          );
+          return {
+            ...prev,
+            streak: serverRes.streak,
+            bestStreak: serverRes.bestStreak,
+            communitySolves: serverRes.communitySolves,
+            dailyCompleted:
+              prev.dailyCompleted || activeEntry.mode === 'daily',
+            personalRank: serverRes.leaderboard.personalRank,
+            percentile: serverRes.leaderboard.percentile,
+            completedRecords: [serverRes.record, ...filteredRecords],
+            leaderboard: serverRes.leaderboard,
+          };
+        });
+      });
     },
     [
+      activeEntry.dateKey,
+      activeEntry.edition,
+      activeEntry.mode,
       activeEntry.puzzle.name,
       activeEntry.puzzle.unifiedSilhouettePathD,
       activeEntry.seed,
+      updateSession,
     ]
   );
+
+  const handleRefreshLeaderboard = useCallback(() => {
+    void fetchDailyLeaderboard(sessionDateKey).then((lb) => {
+      if (!lb) return;
+      updateSession((prev) => ({
+        ...prev,
+        personalRank: lb.personalRank,
+        percentile: lb.percentile,
+        leaderboard: lb,
+      }));
+    });
+  }, [sessionDateKey, updateSession]);
 
   const seedKey = `${activeEntry.seed}:r${reshuffleCount}`;
   const engine = usePuzzleEngine(
@@ -93,23 +181,28 @@ export const App = () => {
   }, [completion]);
 
   const dailyUnlocked =
-    Boolean(session?.dailyCompleted) || completedRecords.has(pack.main.seed);
+    sessionDailyCompleted || completedRecords.has(pack.main.seed);
 
   const effectiveStreak = useMemo(() => {
-    const baseStreak = session?.streak ?? 0;
-    if (!session?.dailyCompleted && completedRecords.has(pack.main.seed)) {
-      return baseStreak + 1;
+    if (!sessionDailyCompleted && completedRecords.has(pack.main.seed)) {
+      return sessionStreak + 1;
     }
-    return baseStreak;
-  }, [
-    completedRecords,
-    pack.main.seed,
-    session?.dailyCompleted,
-    session?.streak,
-  ]);
+    return sessionStreak;
+  }, [completedRecords, pack.main.seed, sessionDailyCompleted, sessionStreak]);
 
   const handleScatterCurrent = useCallback(() => {
     setReshuffleCount((c) => c + 1);
+  }, []);
+
+  const handleOpenLeaderboard = useCallback(() => {
+    setDrawerTab('ranks');
+    setDrawerOpen(true);
+    handleRefreshLeaderboard();
+  }, [handleRefreshLeaderboard]);
+
+  const handleOpenSanctum = useCallback(() => {
+    setDrawerTab('today');
+    setDrawerOpen(true);
   }, []);
 
   const nextAction = useMemo<NextActionConfig>(() => {
@@ -173,7 +266,7 @@ export const App = () => {
         <div className="flex items-center gap-2.5 min-w-0">
           <button
             type="button"
-            onClick={() => setDrawerOpen(true)}
+            onClick={handleOpenSanctum}
             aria-label="Open Sanctum Codex & Modes"
             title="Sanctum Codex"
             className="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full bg-basalt-850/90 border border-white/10 hover:border-brass/45 text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
@@ -283,7 +376,7 @@ export const App = () => {
         )}
       </footer>
 
-      {/* Single Authoritative End State (Reveals strictly after 1.08s ignition sweep settles) */}
+      {/* Single Authoritative End State (Hydrated with Live Redis Rank, Percentile & Streak) */}
       {showResultCard && scoreBreakdown && (
         <ResultCard
           mode={activeMode}
@@ -292,23 +385,31 @@ export const App = () => {
           completion={completion}
           score={scoreBreakdown}
           streak={effectiveStreak}
-          personalRank={null}
-          percentile={null}
+          personalRank={session?.personalRank ?? null}
+          percentile={session?.percentile ?? null}
           nextAction={nextAction}
           onReplay={handleScatterCurrent}
-          onOpenSanctum={() => setDrawerOpen(true)}
+          onOpenLeaderboard={handleOpenLeaderboard}
+          onOpenSanctum={handleOpenSanctum}
         />
       )}
 
       {/* Slide-Over Sanctum Codex Drawer */}
       <SanctumDrawer
         open={drawerOpen}
+        activeTab={drawerTab}
+        onTabChange={setDrawerTab}
+        currentUsername={session?.username ?? 'wanderer'}
+        streak={effectiveStreak}
+        bestStreak={session?.bestStreak ?? effectiveStreak}
         pack={pack}
+        leaderboard={session?.leaderboard ?? null}
         activeMode={activeMode}
         activePracticeKey={activePracticeKey}
         practiceCatalog={practiceCatalog}
         dailyUnlocked={dailyUnlocked}
         completedRecords={completedRecords}
+        onRefreshLeaderboard={handleRefreshLeaderboard}
         onClose={() => setDrawerOpen(false)}
         onSelectMode={selectMode}
         onSelectPractice={selectPracticeItem}

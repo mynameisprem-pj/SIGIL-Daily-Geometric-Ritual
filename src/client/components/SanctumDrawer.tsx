@@ -1,28 +1,30 @@
 import * as React from 'react';
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect } from 'react';
 import type {
   CompiledSigilPuzzle,
+  DailyLeaderboardSnapshot,
   DailySigilPack,
   GameMode,
 } from '../../shared/types';
 import type { PracticeCatalogItem } from '../engine/dailyPack';
-
-export interface CompletedSealRecord {
-  readonly seed: string;
-  readonly name: string;
-  readonly silhouettePathD: string;
-  readonly isPerfect: boolean;
-  readonly bestScore: number;
-}
+import type { CompletedSealRecord, SanctumTab } from './sanctumTypes';
+import { formatDurationMs } from './timerUtils';
 
 interface SanctumDrawerProps {
   readonly open: boolean;
+  readonly activeTab: SanctumTab;
+  readonly onTabChange: (tab: SanctumTab) => void;
+  readonly currentUsername: string;
+  readonly streak: number;
+  readonly bestStreak: number;
   readonly pack: DailySigilPack;
+  readonly leaderboard: DailyLeaderboardSnapshot | null;
   readonly activeMode: GameMode;
   readonly activePracticeKey: string;
   readonly practiceCatalog: readonly PracticeCatalogItem[];
   readonly dailyUnlocked: boolean;
   readonly completedRecords: ReadonlyMap<string, CompletedSealRecord>;
+  readonly onRefreshLeaderboard: () => void;
   readonly onClose: () => void;
   readonly onSelectMode: (mode: GameMode) => void;
   readonly onSelectPractice: (key: string) => void;
@@ -30,24 +32,27 @@ interface SanctumDrawerProps {
   readonly onScatterCurrent: () => void;
 }
 
-type DrawerTab = 'today' | 'archive' | 'vault';
-
 export const SanctumDrawer = memo(function SanctumDrawer({
   open,
+  activeTab,
+  onTabChange,
+  currentUsername,
+  streak,
+  bestStreak,
   pack,
+  leaderboard,
   activeMode,
   activePracticeKey,
   practiceCatalog,
   dailyUnlocked,
   completedRecords,
+  onRefreshLeaderboard,
   onClose,
   onSelectMode,
   onSelectPractice,
   onEnterZen,
   onScatterCurrent,
 }: SanctumDrawerProps) {
-  const [tab, setTab] = useState<DrawerTab>('today');
-
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -113,6 +118,10 @@ export const SanctumDrawer = memo(function SanctumDrawer({
     if (e.target === e.currentTarget) onClose();
   };
 
+  const personalInTop10 =
+    leaderboard?.entries.some((row) => row.username === currentUsername) ??
+    false;
+
   return (
     <div
       role="dialog"
@@ -121,15 +130,22 @@ export const SanctumDrawer = memo(function SanctumDrawer({
       onClick={handleBackdropClick}
       className="fixed inset-0 z-40 flex justify-start bg-basalt-950/78 animate-reveal-rise"
     >
-      <aside className="relative flex flex-col w-full max-w-[380px] h-full bg-basalt-900 border-r border-white/10 p-5 overflow-y-auto">
-        {/* Drawer Header */}
+      <aside className="relative flex flex-col w-full max-w-[400px] h-full bg-basalt-900 border-r border-white/10 p-5 overflow-y-auto">
+        {/* Drawer Header + Streak Pill */}
         <div className="flex items-center justify-between pb-4 border-b border-white/8">
           <div>
-            <span className="text-[10px] font-mono tracking-[0.22em] uppercase text-brass">
-              EDITION #{String(pack.edition).padStart(3, '0')}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono tracking-[0.22em] uppercase text-brass">
+                EDITION #{String(pack.edition).padStart(3, '0')}
+              </span>
+              {streak > 0 && (
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-basalt-950 border border-brass/35 text-brass">
+                  {streak}d streak
+                </span>
+              )}
+            </div>
             <h2
-              className="text-base font-semibold tracking-[0.16em] uppercase text-alabaster"
+              className="text-base font-semibold tracking-[0.16em] uppercase text-alabaster mt-0.5"
               style={{ fontFamily: 'var(--font-display)' }}
             >
               Sanctum Codex
@@ -146,11 +162,12 @@ export const SanctumDrawer = memo(function SanctumDrawer({
           </button>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="grid grid-cols-3 gap-1.5 my-4 p-1 rounded-xl bg-basalt-950 border border-white/6">
+        {/* 4-Tab Navigation Bar */}
+        <div className="grid grid-cols-4 gap-1 my-4 p-1 rounded-xl bg-basalt-950 border border-white/6">
           {(
             [
               { id: 'today', label: 'Today' },
+              { id: 'ranks', label: 'Ranks' },
               { id: 'archive', label: 'Archive' },
               { id: 'vault', label: `Jade (${perfectedSeals.length})` },
             ] as const
@@ -158,9 +175,12 @@ export const SanctumDrawer = memo(function SanctumDrawer({
             <button
               key={item.id}
               type="button"
-              onClick={() => setTab(item.id)}
-              className={`py-1.5 rounded-lg text-[11px] font-semibold tracking-[0.14em] uppercase transition-colors cursor-pointer ${
-                tab === item.id
+              onClick={() => {
+                onTabChange(item.id);
+                if (item.id === 'ranks') onRefreshLeaderboard();
+              }}
+              className={`py-1.5 rounded-lg text-[10px] font-semibold tracking-[0.12em] uppercase transition-colors cursor-pointer ${
+                activeTab === item.id
                   ? 'bg-basalt-850 text-alabaster border border-white/10'
                   : 'text-stone-300 hover:text-alabaster'
               }`}
@@ -171,7 +191,7 @@ export const SanctumDrawer = memo(function SanctumDrawer({
         </div>
 
         {/* TAB 1: Today's Daily + 2 Bonuses + Zen Mode */}
-        {tab === 'today' && (
+        {activeTab === 'today' && (
           <div className="flex flex-col gap-2.5 flex-1">
             {/* Main Daily */}
             <button
@@ -327,8 +347,127 @@ export const SanctumDrawer = memo(function SanctumDrawer({
           </div>
         )}
 
-        {/* TAB 2: Practice Archive (Past Days + Founders' Prelude Seals) */}
-        {tab === 'archive' && (
+        {/* TAB 2: Daily Leaderboard (Top 10 + Personal Standing + Percentile) */}
+        {activeTab === 'ranks' && (
+          <div className="flex flex-col gap-3 flex-1">
+            <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-basalt-950 border border-white/8">
+              <div>
+                <span className="text-[10px] font-mono tracking-[0.18em] uppercase text-stone-300">
+                  {pack.main.puzzle.name}
+                </span>
+                <p className="text-xs text-alabaster mt-0.5">
+                  First-attempt Daily Standings
+                </p>
+              </div>
+              <div className="text-right font-mono">
+                <span className="text-sm font-semibold text-brass">
+                  {leaderboard?.totalPlayers ?? 0}
+                </span>
+                <span className="block text-[10px] text-stone-400 uppercase">
+                  ranked
+                </span>
+              </div>
+            </div>
+
+            {!leaderboard || leaderboard.entries.length === 0 ? (
+              <div className="flex flex-col items-center justify-center text-center my-auto py-10 px-4">
+                <p className="text-sm font-semibold text-alabaster">
+                  The Altar Awaits Its First Scribe
+                </p>
+                <p className="text-xs text-stone-300 mt-1">
+                  Complete Today’s Main Daily to claim Rank #1 on the board.
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {leaderboard.entries.map((row) => {
+                  const isMe = row.username === currentUsername;
+                  return (
+                    <div
+                      key={row.username}
+                      className={`flex items-center justify-between gap-2 px-3 py-2 rounded-xl border ${
+                        isMe
+                          ? row.isPerfect
+                            ? 'bg-basalt-850 border-jade/50'
+                            : 'bg-basalt-850 border-brass/50'
+                          : 'bg-basalt-950/65 border-white/6'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span
+                          className={`w-6 text-xs font-mono font-bold tabular-nums ${
+                            row.rank === 1
+                              ? 'text-brass'
+                              : row.rank <= 3
+                                ? 'text-alabaster'
+                                : 'text-stone-400'
+                          }`}
+                        >
+                          #{row.rank}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-semibold text-alabaster truncate">
+                              u/{row.username}
+                            </span>
+                            {row.isPerfect && (
+                              <span
+                                title="Perfect Jade Reconstruction"
+                                className="text-[10px] text-jade"
+                              >
+                                ◈
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] font-mono text-stone-400">
+                            {row.moves} mv · {formatDurationMs(row.elapsedMs)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <span
+                        className={`text-xs font-mono font-bold tabular-nums ${
+                          row.isPerfect ? 'text-jade' : 'text-alabaster'
+                        }`}
+                      >
+                        {row.score.toLocaleString('en-US')}
+                      </span>
+                    </div>
+                  );
+                })}
+
+                {/* Pinned Personal Row when ranked outside Top 10 */}
+                {!personalInTop10 && leaderboard.personalEntry && (
+                  <div className="mt-2 pt-2 border-t border-white/10">
+                    <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-basalt-850 border border-brass/45">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="text-xs font-mono font-bold text-brass tabular-nums">
+                          #{leaderboard.personalEntry.rank}
+                        </span>
+                        <div className="min-w-0">
+                          <span className="text-xs font-semibold text-alabaster truncate block">
+                            u/{leaderboard.personalEntry.username}
+                          </span>
+                          <span className="text-[10px] font-mono text-stone-300">
+                            Top {leaderboard.percentile ?? 100}% ·{' '}
+                            {leaderboard.personalEntry.moves} mv
+                          </span>
+                        </div>
+                      </div>
+
+                      <span className="text-xs font-mono font-bold text-alabaster tabular-nums">
+                        {leaderboard.personalEntry.score.toLocaleString('en-US')}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 3: Practice Archive (Past Days + Founders' Prelude Seals) */}
+        {activeTab === 'archive' && (
           <div className="flex flex-col gap-2 flex-1">
             <p className="text-xs text-stone-300 mb-1">
               Practice past editions and Founders’ Prelude seals freely without
@@ -376,8 +515,8 @@ export const SanctumDrawer = memo(function SanctumDrawer({
           </div>
         )}
 
-        {/* TAB 3: Personal Collection of Perfected Jade Sigils */}
-        {tab === 'vault' && (
+        {/* TAB 4: Personal Collection of Perfected Jade Sigils */}
+        {activeTab === 'vault' && (
           <div className="flex flex-col flex-1">
             {perfectedSeals.length === 0 ? (
               <div className="flex flex-col items-center justify-center text-center my-auto py-10 px-4">
@@ -432,11 +571,11 @@ export const SanctumDrawer = memo(function SanctumDrawer({
             }}
             className="text-xs tracking-[0.14em] uppercase text-stone-300 hover:text-alabaster px-3 py-1.5 rounded-lg bg-basalt-850 border border-white/10 cursor-pointer"
           >
-            Re-Scatter Current
+            Re-Scatter
           </button>
 
           <span className="text-[11px] font-mono text-stone-400">
-            SIGIL · 2026
+            Best Streak: {Math.max(streak, bestStreak)}d
           </span>
         </div>
       </aside>

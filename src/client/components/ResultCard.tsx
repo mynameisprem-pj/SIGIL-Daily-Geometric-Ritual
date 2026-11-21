@@ -7,13 +7,8 @@ import type {
   ScoreBreakdown,
 } from '../../shared/types';
 import { copyShareDispatch } from '../utils/clipboardShare';
+import type { NextActionConfig } from './resultTypes';
 import { formatDurationMs } from './timerUtils';
-
-export interface NextActionConfig {
-  readonly label: string;
-  readonly sublabel: string;
-  readonly onTrigger: () => void;
-}
 
 interface ResultCardProps {
   readonly mode: GameMode;
@@ -26,6 +21,7 @@ interface ResultCardProps {
   readonly percentile: number | null;
   readonly nextAction: NextActionConfig;
   readonly onReplay: () => void;
+  readonly onOpenLeaderboard: () => void;
   readonly onOpenSanctum: () => void;
 }
 
@@ -40,6 +36,7 @@ export const ResultCard = memo(function ResultCard({
   percentile,
   nextAction,
   onReplay,
+  onOpenLeaderboard,
   onOpenSanctum,
 }: ResultCardProps) {
   const [copiedJustNow, setCopiedJustNow] = useState(false);
@@ -78,7 +75,6 @@ export const ResultCard = memo(function ResultCard({
     streak,
   ]);
 
-  // Collapsed Altar-Inspection Pill (allows admiring the stage without multiple end screens)
   if (inspectingAltar) {
     return (
       <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 w-full max-w-[460px] px-4 animate-reveal-rise">
@@ -136,15 +132,17 @@ export const ResultCard = memo(function ResultCard({
     mode !== 'daily'
       ? mode === 'zen'
         ? 'Calm'
-        : 'Unranked'
+        : 'Bonus'
       : personalRank !== null
         ? `#${personalRank}`
-        : percentile !== null
-          ? `Top ${Math.max(1, Math.round(percentile))}%`
-          : 'Synced';
+        : '—';
 
   const streakDisplay =
-    mode === 'daily' ? `${Math.max(1, streak)}d` : streak > 0 ? `${streak}d` : '—';
+    mode === 'daily'
+      ? `${Math.max(1, streak)}d`
+      : streak > 0
+        ? `${streak}d`
+        : '—';
 
   return (
     <div
@@ -154,7 +152,7 @@ export const ResultCard = memo(function ResultCard({
       className="fixed inset-0 z-30 flex items-center justify-center p-4 bg-basalt-950/80 animate-reveal-rise"
     >
       <div
-        className={`relative w-full max-w-[432px] rounded-[26px] bg-basalt-900 border p-5 sm:p-6 shadow-[0_28px_80px_rgba(0,0,0,0.88)] ${
+        className={`relative w-full max-w-[436px] rounded-[26px] bg-basalt-900 border p-5 sm:p-6 shadow-[0_28px_80px_rgba(0,0,0,0.88)] ${
           isPerfect ? 'border-jade/50' : 'border-brass/45'
         }`}
       >
@@ -240,7 +238,7 @@ export const ResultCard = memo(function ResultCard({
           </div>
         </div>
 
-        {/* 4-Cell Stat Grid (Moves, Time, Streak, Rank) */}
+        {/* 4-Cell Stat Grid (Moves, Time, Streak, Interactive Rank) */}
         <div className="grid grid-cols-4 gap-2 mb-5">
           <div className="flex flex-col items-center justify-center py-2.5 px-1.5 rounded-xl bg-basalt-950/90 border border-white/6">
             <span className="text-[10px] tracking-[0.16em] uppercase text-stone-300">
@@ -282,19 +280,24 @@ export const ResultCard = memo(function ResultCard({
             </span>
           </div>
 
-          <div className="flex flex-col items-center justify-center py-2.5 px-1.5 rounded-xl bg-basalt-950/90 border border-white/6">
+          <button
+            type="button"
+            onClick={onOpenLeaderboard}
+            title="View Today’s Top 10 Leaderboard"
+            className="flex flex-col items-center justify-center py-2.5 px-1.5 rounded-xl bg-basalt-950/90 border border-white/10 hover:border-brass/45 transition-colors cursor-pointer"
+          >
             <span className="text-[10px] tracking-[0.16em] uppercase text-stone-300">
               Rank
             </span>
             <span className="text-sm font-mono font-semibold text-alabaster mt-0.5 tabular-nums">
               {rankDisplay}
             </span>
-            <span className="text-[10px] font-mono text-stone-400">
+            <span className="text-[10px] font-mono text-brass">
               {percentile !== null && mode === 'daily'
                 ? `Top ${Math.max(1, Math.round(percentile))}%`
-                : 'global'}
+                : 'board →'}
             </span>
-          </div>
+          </button>
         </div>
 
         {/* Primary Next Action CTA */}
@@ -320,20 +323,28 @@ export const ResultCard = memo(function ResultCard({
           </span>
         </button>
 
-        {/* Secondary Action Row: Share + Replay + Sanctum Archive */}
-        <div className="grid grid-cols-3 gap-2">
+        {/* Secondary Action Row: Share + Ranks + Replay + Archive */}
+        <div className="grid grid-cols-4 gap-1.5">
           <button
             type="button"
             onClick={() => void handleShare()}
-            className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-basalt-850 border border-white/12 hover:border-brass/50 text-xs font-semibold tracking-[0.12em] uppercase text-alabaster transition-colors cursor-pointer"
+            className="flex items-center justify-center py-2.5 px-2 rounded-xl bg-basalt-850 border border-white/12 hover:border-brass/50 text-[11px] font-semibold tracking-[0.1em] uppercase text-alabaster transition-colors cursor-pointer"
           >
-            <span>{copiedJustNow ? 'Copied ✓' : 'Share'}</span>
+            {copiedJustNow ? 'Copied ✓' : 'Share'}
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenLeaderboard}
+            className="flex items-center justify-center py-2.5 px-2 rounded-xl bg-basalt-850 border border-white/10 hover:border-white/25 text-[11px] font-medium tracking-[0.1em] uppercase text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
+          >
+            Ranks
           </button>
 
           <button
             type="button"
             onClick={onReplay}
-            className="flex items-center justify-center py-2.5 px-3 rounded-xl bg-basalt-850 border border-white/10 hover:border-white/25 text-xs font-medium tracking-[0.12em] uppercase text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
+            className="flex items-center justify-center py-2.5 px-2 rounded-xl bg-basalt-850 border border-white/10 hover:border-white/25 text-[11px] font-medium tracking-[0.1em] uppercase text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
           >
             Replay
           </button>
@@ -341,9 +352,9 @@ export const ResultCard = memo(function ResultCard({
           <button
             type="button"
             onClick={onOpenSanctum}
-            className="flex items-center justify-center py-2.5 px-3 rounded-xl bg-basalt-850 border border-white/10 hover:border-white/25 text-xs font-medium tracking-[0.12em] uppercase text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
+            className="flex items-center justify-center py-2.5 px-2 rounded-xl bg-basalt-850 border border-white/10 hover:border-white/25 text-[11px] font-medium tracking-[0.1em] uppercase text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
           >
-            Archive
+            Codex
           </button>
         </div>
       </div>
