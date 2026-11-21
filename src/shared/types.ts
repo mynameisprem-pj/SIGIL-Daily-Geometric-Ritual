@@ -1,5 +1,7 @@
 export type GameMode = 'daily' | 'bonus-1' | 'bonus-2' | 'practice' | 'zen';
 
+export type DifficultyTier = 'flow' | 'ritual' | 'masterpiece' | 'ascendant';
+
 export interface Point2D {
   readonly x: number;
   readonly y: number;
@@ -72,6 +74,25 @@ export interface CompiledSigilPuzzle {
   readonly pieces: readonly NormalizedPieceDefinition[];
   /** Combined SVG `d` of the entire Sigil in world space for the single stone-etched silhouette */
   readonly unifiedSilhouettePathD: string;
+}
+
+export interface ScheduledPuzzleEntry {
+  readonly mode: GameMode;
+  readonly dateKey: string;
+  readonly edition: number;
+  readonly seed: string;
+  readonly tier: DifficultyTier;
+  readonly tierLabel: string;
+  readonly pieceCount: number;
+  readonly puzzle: CompiledSigilPuzzle;
+}
+
+export interface DailySigilPack {
+  readonly dateKey: string;
+  readonly edition: number;
+  readonly main: ScheduledPuzzleEntry;
+  readonly bonus1: ScheduledPuzzleEntry;
+  readonly bonus2: ScheduledPuzzleEntry;
 }
 
 export interface PieceRuntimeState {

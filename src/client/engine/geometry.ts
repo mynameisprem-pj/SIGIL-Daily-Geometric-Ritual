@@ -526,11 +526,64 @@ export function computeMinimumRotationSteps(
 }
 
 /**
+ * Clamps `candidateOrigin` so every rotated visible point of `piece` stays strictly
+ * inside `[marginPx, STAGE_VIEWBOX_SIZE - marginPx]`.
+ */
+export function clampPositionForRotatedPiece(
+  piece: NormalizedPieceDefinition,
+  candidateOrigin: Point2D,
+  rotationDeg: number,
+  marginPx: number = STAGE_PADDING_PX
+): Point2D {
+  let minLocalX = 0;
+  let maxLocalX = 0;
+  let minLocalY = 0;
+  let maxLocalY = 0;
+
+  for (const localPt of piece.localSamplePoints) {
+    const rotPt = rotatePointAroundOrigin(localPt, rotationDeg);
+    if (rotPt.x < minLocalX) minLocalX = rotPt.x;
+    if (rotPt.x > maxLocalX) maxLocalX = rotPt.x;
+    if (rotPt.y < minLocalY) minLocalY = rotPt.y;
+    if (rotPt.y > maxLocalY) maxLocalY = rotPt.y;
+  }
+
+  const minAllowedX = Math.min(
+    SANCTUM_CENTER,
+    Math.max(marginPx, marginPx - minLocalX)
+  );
+  const maxAllowedX = Math.max(
+    SANCTUM_CENTER,
+    Math.min(
+      STAGE_VIEWBOX_SIZE - marginPx,
+      STAGE_VIEWBOX_SIZE - marginPx - maxLocalX
+    )
+  );
+  const minAllowedY = Math.min(
+    SANCTUM_CENTER,
+    Math.max(marginPx, marginPx - minLocalY)
+  );
+  const maxAllowedY = Math.max(
+    SANCTUM_CENTER,
+    Math.min(
+      STAGE_VIEWBOX_SIZE - marginPx,
+      STAGE_VIEWBOX_SIZE - marginPx - maxLocalY
+    )
+  );
+
+  return {
+    x: Math.max(minAllowedX, Math.min(maxAllowedX, candidateOrigin.x)),
+    y: Math.max(minAllowedY, Math.min(maxAllowedY, candidateOrigin.y)),
+  };
+}
+
+/**
  * Deterministically scatters all pieces into a clean outer ring around the central sanctum.
  * Guarantees:
+ * - Every rotated stroke tip stays >= STAGE_PADDING_PX inside the 520x520 basalt frame
+ * - Pairwise centroid repulsion prevents pieces from piling up even on 9-piece Master levels
  * - No piece starts within snap distance of its target slot
- * - Every asymmetric piece starts rotated away from all valid symmetric orientations
- * - Pieces stay inside stage bounds and maintain comfortable finger separation
+ * - Every piece with discrete asymmetry starts rotated away from all valid solved angles
  */
 export function createScatteredPieceStates(
   puzzle: CompiledSigilPuzzle,
@@ -542,38 +595,9 @@ export function createScatteredPieceStates(
     Array.from({ length: count }, (_, idx) => idx)
   );
   const baseAngleOffset = rng.nextFloat() * 360;
+  const allStepAngles = [0, 45, 90, 135, 180, 225, 270, 315];
 
-  return puzzle.pieces.map((piece, idx) => {
-    const ringIndex = slotIndices[idx]!;
-    const sectorAngleDeg =
-      baseAngleOffset +
-      (ringIndex * 360) / count +
-      (rng.nextFloat() * 14 - 7);
-
-    const radialT = rng.nextFloat();
-    const rawRadius =
-      SCATTER_INNER_RADIUS +
-      radialT * (SCATTER_OUTER_RADIUS - SCATTER_INNER_RADIUS);
-
-    const rawPos = polarPoint(rawRadius, sectorAngleDeg);
-    const margin = Math.min(
-      64,
-      Math.max(STAGE_PADDING_PX, piece.boundingRadius * 0.65)
-    );
-    const clampedPos: Point2D = {
-      x: Math.max(margin, Math.min(STAGE_VIEWBOX_SIZE - margin, rawPos.x)),
-      y: Math.max(margin, Math.min(STAGE_VIEWBOX_SIZE - margin, rawPos.y)),
-    };
-
-    // Ensure position is strictly outside snap zone of targetCentroid
-    const finalPos =
-      distanceBetween(clampedPos, piece.targetCentroid) <=
-      SNAP_DISTANCE_PX * 1.6
-        ? polarPoint(SCATTER_OUTER_RADIUS, sectorAngleDeg + 180)
-        : clampedPos;
-
-    // Pick a discrete 45-degree step that is NOT visually solved unless piece is a full 360 circle
-    const allStepAngles = [0, 45, 90, 135, 180, 225, 270, 315];
+  const drafts = puzzle.pieces.map((piece, idx) => {
     const nonSolvedSteps = allStepAngles.filter((candidate) =>
       piece.selfSymmetryAnglesDeg.every(
         (sym) =>
@@ -587,14 +611,91 @@ export function createScatteredPieceStates(
         ? nonSolvedSteps[rng.nextInt(0, nonSolvedSteps.length - 1)]!
         : allStepAngles[rng.nextInt(1, allStepAngles.length - 1)]!;
 
+    const ringIndex = slotIndices[idx]!;
+    const sectorAngleDeg =
+      baseAngleOffset + (ringIndex * 360) / count + (rng.nextFloat() * 10 - 5);
+
+    const rawRadius =
+      SCATTER_INNER_RADIUS +
+      rng.nextFloat() * (SCATTER_OUTER_RADIUS - SCATTER_INNER_RADIUS);
+
+    let pos = clampPositionForRotatedPiece(
+      piece,
+      polarPoint(rawRadius, sectorAngleDeg),
+      chosenRotationDeg
+    );
+
+    if (
+      distanceBetween(pos, piece.targetCentroid) <=
+      SNAP_DISTANCE_PX * 1.75
+    ) {
+      pos = clampPositionForRotatedPiece(
+        piece,
+        polarPoint(SCATTER_OUTER_RADIUS, sectorAngleDeg + 180),
+        chosenRotationDeg
+      );
+    }
+
+    return {
+      piece,
+      sectorAngleDeg,
+      position: pos,
+      rotationDeg: chosenRotationDeg,
+    };
+  });
+
+  // Gentle deterministic pairwise repulsion + sanctum pushout so 8-9 pieces breathe cleanly
+  const minCentroidSpacing = count >= 9 ? 68 : count >= 8 ? 74 : 80;
+  for (let pass = 0; pass < 8; pass++) {
+    for (let i = 0; i < drafts.length; i++) {
+      for (let j = i + 1; j < drafts.length; j++) {
+        const a = drafts[i]!;
+        const b = drafts[j]!;
+        const dx = b.position.x - a.position.x;
+        const dy = b.position.y - a.position.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < minCentroidSpacing) {
+          const push = (minCentroidSpacing - Math.max(1, dist)) * 0.45;
+          const ux = dist > 1e-3 ? dx / dist : Math.cos(degToRad(i * 45));
+          const uy = dist > 1e-3 ? dy / dist : Math.sin(degToRad(i * 45));
+
+          a.position = clampPositionForRotatedPiece(
+            a.piece,
+            { x: a.position.x - ux * push, y: a.position.y - uy * push },
+            a.rotationDeg
+          );
+          b.position = clampPositionForRotatedPiece(
+            b.piece,
+            { x: b.position.x + ux * push, y: b.position.y + uy * push },
+            b.rotationDeg
+          );
+        }
+      }
+    }
+
+    for (const d of drafts) {
+      // Ensure scatter stays clear of its own targetCentroid after repulsion
+      if (
+        distanceBetween(d.position, d.piece.targetCentroid) <=
+        SNAP_DISTANCE_PX * 1.5
+      ) {
+        d.position = clampPositionForRotatedPiece(
+          d.piece,
+          polarPoint(SCATTER_OUTER_RADIUS, d.sectorAngleDeg + 155),
+          d.rotationDeg
+        );
+      }
+    }
+  }
+
+  return drafts.map(({ piece, position, rotationDeg }) => {
     const minRotSteps = computeMinimumRotationSteps(
-      chosenRotationDeg,
+      rotationDeg,
       piece.selfSymmetryAnglesDeg
     );
-    // 1 drag move + minimum clockwise 45-deg taps needed (since primary tap is +45 deg CW)
     let minCwTaps = Infinity;
     for (const sym of piece.selfSymmetryAnglesDeg) {
-      const cwDelta = normalizeAngleDeg(sym - chosenRotationDeg);
+      const cwDelta = normalizeAngleDeg(sym - rotationDeg);
       const cwSteps = Math.round(cwDelta / ROTATION_STEP_DEG) % 8;
       if (cwSteps < minCwTaps) minCwTaps = cwSteps;
     }
@@ -602,8 +703,8 @@ export function createScatteredPieceStates(
 
     return {
       id: piece.id,
-      position: finalPos,
-      rotationDeg: chosenRotationDeg,
+      position,
+      rotationDeg,
       locked: false,
       lockedSlotId: null,
       parMoves,

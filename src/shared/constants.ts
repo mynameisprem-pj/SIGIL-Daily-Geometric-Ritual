@@ -15,9 +15,9 @@ export const GEOMETRY_CONGRUENCE_EPSILON_PX = 1.25;
 export const SAMPLE_SPACING_PX = 2.5;
 
 /** Scatter ring bounds so initial pieces surround the sanctum cleanly */
-export const SCATTER_INNER_RADIUS = 172;
-export const SCATTER_OUTER_RADIUS = 216;
-export const STAGE_PADDING_PX = 34;
+export const SCATTER_INNER_RADIUS = 170;
+export const SCATTER_OUTER_RADIUS = 204;
+export const STAGE_PADDING_PX = 24;
 
 /** Touch/mouse drag threshold distinguishing a tap-to-rotate from a drag */
 export const TAP_MAX_TRAVEL_PX = 6;
@@ -32,4 +32,16 @@ export function getEditionNumber(dateKey: string): number {
   const targetMs = Date.parse(`${dateKey}T00:00:00Z`);
   const diffDays = Math.floor((targetMs - epochMs) / 86_400_000);
   return Math.max(1, diffDays + 1);
+}
+
+export function getDateKeyForEdition(edition: number): string {
+  const clampedEdition = Math.max(1, Math.floor(edition));
+  const epochMs = Date.parse(`${SIGIL_EPOCH_UTC}T00:00:00Z`);
+  const targetMs = epochMs + (clampedEdition - 1) * 86_400_000;
+  return new Date(targetMs).toISOString().slice(0, 10);
+}
+
+/** Day of week in UTC: 0 = Sunday, 1 = Monday, ..., 6 = Saturday */
+export function getUtcDayOfWeek(dateKey: string): number {
+  return new Date(`${dateKey}T00:00:00Z`).getUTCDay();
 }
