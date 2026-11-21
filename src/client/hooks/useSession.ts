@@ -1,6 +1,61 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { getEditionNumber, getTodayUtcDateKey } from '../../shared/constants';
 import type { SessionInitResponse } from '../../shared/types';
+
+function createFallbackSession(): SessionInitResponse {
+  const dateKey = getTodayUtcDateKey();
+  const edition = getEditionNumber(dateKey);
+
+  return {
+    status: 'ok',
+    postId: 'local-dev',
+    username: 'architect',
+    isAuthenticated: true,
+    dateKey,
+    edition,
+    communitySolves: 42,
+    streak: 3,
+    bestStreak: 5,
+    dailyCompleted: false,
+    personalRank: null,
+    percentile: null,
+    completedRecords: [],
+    leaderboard: {
+      dateKey,
+      edition,
+      totalPlayers: 3,
+      entries: [
+        {
+          rank: 1,
+          username: 'celestial_scribe',
+          score: 1100,
+          moves: 11,
+          elapsedMs: 26_400,
+          isPerfect: true,
+        },
+        {
+          rank: 2,
+          username: 'basalt_mason',
+          score: 964,
+          moves: 15,
+          elapsedMs: 39_100,
+          isPerfect: false,
+        },
+        {
+          rank: 3,
+          username: 'meridian_fox',
+          score: 880,
+          moves: 18,
+          elapsedMs: 51_000,
+          isPerfect: false,
+        },
+      ],
+      personalRank: null,
+      percentile: null,
+      personalEntry: null,
+    },
+  };
+}
 
 export function useSession() {
   const [session, setSession] = useState<SessionInitResponse | null>(null);
@@ -20,19 +75,8 @@ export function useSession() {
           return;
         }
       } catch {
-        // Fallback for standalone Vite browser testing outside Reddit iframe
         if (!cancelled) {
-          const dateKey = getTodayUtcDateKey();
-          setSession({
-            status: 'ok',
-            postId: 'local-dev',
-            username: 'architect',
-            dateKey,
-            edition: getEditionNumber(dateKey),
-            communitySolves: 42,
-            streak: 3,
-            dailyCompleted: false,
-          });
+          setSession(createFallbackSession());
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -45,5 +89,12 @@ export function useSession() {
     };
   }, []);
 
-  return { session, loading };
+  const updateSession = useCallback(
+    (updater: (prev: SessionInitResponse) => SessionInitResponse) => {
+      setSession((prev) => (prev ? updater(prev) : prev));
+    },
+    []
+  );
+
+  return { session, loading, updateSession };
 }

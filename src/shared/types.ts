@@ -146,18 +146,86 @@ export interface ScoreBreakdown {
   readonly gradeLabel: string;
 }
 
+/** Persisted per-seed user completion & Jade Seal record stored in Devvit Redis */
+export interface PersistedSealRecord {
+  readonly seed: string;
+  readonly mode: GameMode;
+  readonly edition: number;
+  readonly name: string;
+  readonly silhouettePathD: string;
+  readonly isPerfect: boolean;
+  readonly bestScore: number;
+  readonly bestMoves: number;
+  readonly bestElapsedMs: number;
+  readonly completedAtIso: string;
+}
+
+export interface LeaderboardRow {
+  readonly rank: number;
+  readonly username: string;
+  readonly score: number;
+  readonly moves: number;
+  readonly elapsedMs: number;
+  readonly isPerfect: boolean;
+}
+
+export interface DailyLeaderboardSnapshot {
+  readonly dateKey: string;
+  readonly edition: number;
+  readonly totalPlayers: number;
+  readonly entries: readonly LeaderboardRow[];
+  readonly personalRank: number | null;
+  readonly percentile: number | null;
+  readonly personalEntry: LeaderboardRow | null;
+}
+
 export interface SessionInitResponse {
-  status: 'ok';
-  postId: string;
-  username: string;
-  dateKey: string;
-  edition: number;
-  communitySolves: number;
-  streak: number;
-  dailyCompleted: boolean;
+  readonly status: 'ok';
+  readonly postId: string;
+  readonly username: string;
+  readonly isAuthenticated: boolean;
+  readonly dateKey: string;
+  readonly edition: number;
+  readonly communitySolves: number;
+  readonly streak: number;
+  readonly bestStreak: number;
+  readonly dailyCompleted: boolean;
+  readonly personalRank: number | null;
+  readonly percentile: number | null;
+  readonly completedRecords: readonly PersistedSealRecord[];
+  readonly leaderboard: DailyLeaderboardSnapshot;
+}
+
+export interface CompletePuzzleRequest {
+  readonly mode: GameMode;
+  readonly dateKey: string;
+  readonly edition: number;
+  readonly seed: string;
+  readonly sigilName: string;
+  readonly silhouettePathD: string;
+  readonly pieceCount: number;
+  readonly moves: number;
+  readonly parMoves: number;
+  readonly elapsedMs: number;
+}
+
+export interface CompletePuzzleResponse {
+  readonly status: 'ok';
+  readonly score: ScoreBreakdown;
+  readonly firstDailyAttemptRecorded: boolean;
+  readonly streak: number;
+  readonly bestStreak: number;
+  readonly communitySolves: number;
+  readonly record: PersistedSealRecord;
+  readonly leaderboard: DailyLeaderboardSnapshot;
+}
+
+export interface LeaderboardApiResponse {
+  readonly status: 'ok';
+  readonly leaderboard: DailyLeaderboardSnapshot;
 }
 
 export interface ApiErrorResponse {
-  status: 'error';
-  message: string;
+  readonly status: 'error';
+  readonly message: string;
 }
