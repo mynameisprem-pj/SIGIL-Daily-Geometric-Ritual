@@ -1,6 +1,6 @@
 import './index.css';
 
-import { StrictMode, useCallback, useMemo, useState } from 'react';
+import { StrictMode, useCallback, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { calculateSigilScore } from '../shared/scoring';
 import type { PuzzleCompletionStats } from '../shared/types';
@@ -17,6 +17,12 @@ import { SoundToggleButton } from './components/SoundToggleButton';
 import { useDailyPack } from './hooks/useDailyPack';
 import { usePuzzleEngine } from './hooks/usePuzzleEngine';
 import { useSession } from './hooks/useSession';
+import {
+  ensureActiveJourney,
+  notifyAppReadyOnce,
+  trackPuzzleCompletedJourney,
+  trackStrokeLockedProgress,
+} from './telemetry/journeys';
 import {
   fetchDailyLeaderboard,
   submitPuzzleCompletion,
@@ -44,12 +50,18 @@ export const App = () => {
     advanceZen,
   } = daily;
 
+  // Narrow session properties for React Compiler memoization preservation
   const serverRecords = session?.completedRecords;
   const sessionDateKey = session?.dateKey;
   const sessionDailyCompleted = session?.dailyCompleted ?? false;
   const sessionStreak = session?.streak ?? 0;
 
-  // Pure derived merge of persisted Redis records + optimistic in-session completions
+  // Devvit Journeys: signal app-ready & start/reuse active journey when puzzle loads
+  useEffect(() => {
+    notifyAppReadyOnce();
+    void ensureActiveJourney(activeEntry.mode, activeEntry.edition);
+  }, [activeEntry.edition, activeEntry.mode]);
+
   const completedRecords = useMemo(() => {
     const merged = new Map<string, CompletedSealRecord>();
 
@@ -83,7 +95,6 @@ export const App = () => {
     return merged;
   }, [localRecords, serverRecords]);
 
-  // Event-driven completion handler: optimistic update + background Devvit Redis POST
   const handlePuzzleComplete = useCallback(
     (stats: PuzzleCompletionStats) => {
       const breakdown = calculateSigilScore({
@@ -91,6 +102,14 @@ export const App = () => {
         parMoves: stats.parMoves,
         elapsedMs: stats.elapsedMs,
         pieceCount: stats.totalCount,
+      });
+
+      trackPuzzleCompletedJourney({
+        mode: activeEntry.mode,
+        edition: activeEntry.edition,
+        totalScore: breakdown.totalScore,
+        moves: stats.moves,
+        isPerfect: breakdown.isPerfect,
       });
 
       setLocalRecords((prev) => {
@@ -129,6 +148,7 @@ export const App = () => {
             streak: serverRes.streak,
             bestStreak: serverRes.bestStreak,
             communitySolves: serverRes.communitySolves,
+            communityPulse: serverRes.communityPulse,
             dailyCompleted:
               prev.dailyCompleted || activeEntry.mode === 'daily',
             personalRank: serverRes.leaderboard.personalRank,
@@ -162,6 +182,13 @@ export const App = () => {
     });
   }, [sessionDateKey, updateSession]);
 
+  const handleMarkedCommentShared = useCallback(() => {
+    updateSession((prev) => ({
+      ...prev,
+      commentSharedToday: true,
+    }));
+  }, [updateSession]);
+
   const seedKey = `${activeEntry.seed}:r${reshuffleCount}`;
   const engine = usePuzzleEngine(
     activeEntry.puzzle,
@@ -169,6 +196,22 @@ export const App = () => {
     handlePuzzleComplete
   );
   const { completion } = engine;
+
+  // Report Devvit Journey incremental progress whenever a new stroke locks in
+  useEffect(() => {
+    if (completion.lockedCount > 0 && !completion.isComplete) {
+      trackStrokeLockedProgress(
+        completion.lockedCount,
+        completion.totalCount,
+        activeEntry.mode
+      );
+    }
+  }, [
+    activeEntry.mode,
+    completion.isComplete,
+    completion.lockedCount,
+    completion.totalCount,
+  ]);
 
   const scoreBreakdown = useMemo(() => {
     if (!completion.isComplete) return null;
@@ -328,7 +371,7 @@ export const App = () => {
         </div>
       </header>
 
-      {/* Focused Basalt Astrolabe Stage (Zero Surrounding Clutter) */}
+      {/* Focused Basalt Astrolabe Stage */}
       <SigilStage
         puzzle={engine.puzzle}
         pieceMap={engine.pieceMap}
@@ -376,7 +419,7 @@ export const App = () => {
         )}
       </footer>
 
-      {/* Single Authoritative End State (Hydrated with Live Redis Rank, Percentile & Streak) */}
+      {/* Single Authoritative End State (Hydrated with Live Rank, Community Pulse & Thread Share) */}
       {showResultCard && scoreBreakdown && (
         <ResultCard
           mode={activeMode}
@@ -387,6 +430,10 @@ export const App = () => {
           streak={effectiveStreak}
           personalRank={session?.personalRank ?? null}
           percentile={session?.percentile ?? null}
+          communityPulse={session?.communityPulse ?? null}
+          isAuthenticated={session?.isAuthenticated ?? false}
+          commentSharedToday={session?.commentSharedToday ?? false}
+          onMarkedCommentShared={handleMarkedCommentShared}
           nextAction={nextAction}
           onReplay={handleScatterCurrent}
           onOpenLeaderboard={handleOpenLeaderboard}

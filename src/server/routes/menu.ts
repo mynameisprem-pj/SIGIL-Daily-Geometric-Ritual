@@ -1,25 +1,27 @@
 import { Hono } from 'hono';
-import type { UiResponse } from '@devvit/web/shared';
 import { context } from '@devvit/web/server';
-import { createPost } from '../core/post';
+import type { UiResponse } from '@devvit/web/shared';
+import { publishDailySigilPost } from '../services/redditCommunity';
 
 export const menu = new Hono();
 
 menu.post('/post-create', async (c) => {
   try {
-    const post = await createPost();
+    const { postId } = await publishDailySigilPost({ force: true });
+    const subredditName = context.subredditName;
 
     return c.json<UiResponse>(
       {
-        navigateTo: `https://reddit.com/r/${context.subredditName}/comments/${post.id}`,
+        navigateTo: `https://reddit.com/r/${subredditName}/comments/${postId}`,
       },
       200
     );
   } catch (error) {
-    console.error(`Error creating Sigil post: ${error}`);
+    const message =
+      error instanceof Error ? error.message : 'Failed to create Sigil post';
     return c.json<UiResponse>(
       {
-        showToast: 'Could not publish daily Sigil post.',
+        showToast: message,
       },
       400
     );
