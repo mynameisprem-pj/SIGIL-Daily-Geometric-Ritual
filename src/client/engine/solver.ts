@@ -19,6 +19,7 @@ import {
   shortestAngleDistanceDeg,
   transformLocalPointsToWorld,
 } from './geometry';
+export { distanceBetween } from './geometry';
 
 /**
  * Evaluates whether `piece` at `(candidatePosition, candidateRotationDeg)` can snap
