@@ -303,7 +303,12 @@ export const App = () => {
     scoreBreakdown !== null;
 
   return (
-    <main className="relative flex flex-col items-center justify-between w-full h-screen bg-basalt-950 text-alabaster px-4 py-3 sm:py-5 overflow-hidden select-none">
+    <main className="relative flex flex-col items-center justify-between w-full h-dvh min-h-[480px] bg-basalt-950 text-alabaster px-4 py-3 sm:py-5 overflow-hidden select-none">
+      <div className="sr-only" aria-live="polite">
+        {completion.isComplete
+          ? `${activeEntry.puzzle.name} reconstructed in ${engine.moves} moves.`
+          : `${completion.lockedCount} of ${completion.totalCount} strokes inlaid.`}
+      </div>
       {/* Whisper-Quiet Top Sanctuary Bar */}
       <header className="w-full max-w-[496px] flex items-center justify-between gap-2">
         <div className="flex items-center gap-2.5 min-w-0">

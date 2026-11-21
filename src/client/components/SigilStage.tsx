@@ -220,11 +220,62 @@ export function SigilStage({
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (isComplete) return;
+
+      if (e.key === 'Tab' && activeDragRef.current === null) {
+        const available = [...statesByIdRef.current.values()].filter(
+          (s) => !s.locked
+        );
+        if (available.length === 0) return;
+        e.preventDefault();
+        const curIdx = available.findIndex((s) => s.id === selectedPieceId);
+        const dir = e.shiftKey ? -1 : 1;
+        const nextIdx =
+          curIdx === -1
+            ? 0
+            : (curIdx + dir + available.length) % available.length;
+        onSelectPiece(available[nextIdx]!.id);
+        return;
+      }
+
       const targetId = activeDragRef.current?.pieceId ?? selectedPieceId;
       if (!targetId) return;
 
       const st = statesByIdRef.current.get(targetId);
       if (!st || st.locked) return;
+
+      if (
+        activeDragRef.current === null &&
+        (e.key === 'w' ||
+          e.key === 'W' ||
+          e.key === 's' ||
+          e.key === 'S' ||
+          e.key === 'a' ||
+          e.key === 'A' ||
+          e.key === 'd' ||
+          e.key === 'D')
+      ) {
+        e.preventDefault();
+        const step = e.shiftKey ? 4 : 14;
+        const dx =
+          e.key === 'a' || e.key === 'A'
+            ? -step
+            : e.key === 'd' || e.key === 'D'
+              ? step
+              : 0;
+        const dy =
+          e.key === 'w' || e.key === 'W'
+            ? -step
+            : e.key === 's' || e.key === 'S'
+              ? step
+              : 0;
+
+        onCommitDrop(
+          targetId,
+          { x: st.position.x + dx, y: st.position.y + dy },
+          true
+        );
+        return;
+      }
 
       if (
         e.key === 'e' ||
@@ -266,7 +317,14 @@ export function SigilStage({
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [flushDragDomTransform, isComplete, onRotatePiece, selectedPieceId]);
+  }, [
+    flushDragDomTransform,
+    isComplete,
+    onCommitDrop,
+    onRotatePiece,
+    onSelectPiece,
+    selectedPieceId,
+  ]);
 
   useEffect(() => {
     const handleWindowBlur = () => {
