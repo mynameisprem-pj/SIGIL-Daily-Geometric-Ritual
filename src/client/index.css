@@ -1,1 +1,25 @@
 @import 'tailwindcss';
+
+@theme {
+  --color-obsidian-950: #090a0f;
+  --color-obsidian-900: #11131c;
+  --color-obsidian-800: #1a1e2c;
+  --color-rune-gold: #e6b86a;
+  --color-rune-glow: #f7d99c;
+  --color-stone-muted: #8b92a8;
+  --color-ivory: #f3f1ea;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-obsidian-950);
+  color: var(--color-ivory);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  overflow: hidden;
+}

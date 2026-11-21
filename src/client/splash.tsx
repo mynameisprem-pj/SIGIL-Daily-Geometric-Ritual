@@ -1,61 +1,63 @@
 import './index.css';
 
-import { navigateTo } from '@devvit/web/client';
-import { context, requestExpandedMode } from '@devvit/web/client';
+import { requestExpandedMode } from '@devvit/web/client';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { useSession } from './hooks/useSession';
 
 export const Splash = () => {
+  const { session } = useSession();
+
   return (
-    <div className="flex relative flex-col justify-center items-center min-h-screen gap-4 bg-white dark:bg-gray-900">
-      <img
-        className="object-contain w-1/2 max-w-[250px] mx-auto"
-        src="/snoo.png"
-        alt="Snoo"
-      />
-      <div className="flex flex-col items-center gap-2">
-        <h1 className="text-2xl font-bold text-center text-gray-900 dark:text-white">
-          Hey {context.username ?? 'user'} 👋
-        </h1>
-        <p className="text-base text-center text-gray-600 dark:text-gray-300">
-          Edit{' '}
-          <span className="bg-[#e5ebee] dark:bg-gray-700 px-1 py-0.5 rounded">
-            src/client/splash.tsx
-          </span>{' '}
-          to get started.
-        </p>
+    <button
+      type="button"
+      onClick={(e) => requestExpandedMode(e.nativeEvent, 'game')}
+      className="relative flex flex-col items-center justify-between w-full h-full min-h-[320px] p-6 bg-obsidian-950 text-ivory cursor-pointer overflow-hidden select-none group border-0 text-left"
+    >
+      {/* Subtle radial atmosphere */}
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(230,184,106,0.10)_0%,transparent_68%)]" />
+
+      {/* Top Edition Header */}
+      <header className="z-10 flex items-center gap-3 text-xs tracking-[0.24em] uppercase text-stone-muted">
+        <span>SIGIL #{session?.edition ?? 1}</span>
+        <span className="w-1 h-1 rounded-full bg-rune-gold/60" />
+        <span>DAILY RECONSTRUCTION</span>
+      </header>
+
+      {/* Center Geometric Emblem Silhouette */}
+      <div className="z-10 my-4 flex items-center justify-center">
+        <svg
+          viewBox="0 0 160 160"
+          className="w-32 h-32 text-rune-gold transition-transform duration-500 ease-out group-hover:scale-105"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <circle
+            cx="80"
+            cy="80"
+            r="56"
+            className="opacity-25"
+            strokeDasharray="6 6"
+          />
+          <polygon points="80,26 128,108 32,108" className="opacity-85" />
+          <line x1="80" y1="26" x2="80" y2="134" className="opacity-90" />
+          <circle cx="80" cy="82" r="16" className="opacity-95" />
+        </svg>
       </div>
-      <div className="flex items-center justify-center mt-5">
-        <button
-          className="flex items-center justify-center bg-[#d93900] dark:bg-orange-600 text-white w-auto h-10 rounded-full cursor-pointer transition-colors px-4 hover:bg-[#c23300] dark:hover:bg-orange-700"
-          onClick={(e) => requestExpandedMode(e.nativeEvent, 'game')}
-        >
-          Tap to Start
-        </button>
-      </div>
-      <footer className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-3 text-[0.8em] text-gray-600 dark:text-gray-400">
-        <button
-          className="cursor-pointer hover:text-gray-900 dark:hover:text-white transition-colors"
-          onClick={() => navigateTo('https://developers.reddit.com/docs')}
-        >
-          Docs
-        </button>
-        <span className="text-gray-300 dark:text-gray-600">|</span>
-        <button
-          className="cursor-pointer hover:text-gray-900 dark:hover:text-white transition-colors"
-          onClick={() => navigateTo('https://www.reddit.com/r/Devvit')}
-        >
-          r/Devvit
-        </button>
-        <span className="text-gray-300 dark:text-gray-600">|</span>
-        <button
-          className="cursor-pointer hover:text-gray-900 dark:hover:text-white transition-colors"
-          onClick={() => navigateTo('https://discord.com/invite/R7yu2wh9Qz')}
-        >
-          Discord
-        </button>
+
+      {/* Single Primary Action + Live Pulse */}
+      <footer className="z-10 flex flex-col items-center gap-2.5">
+        <span className="px-6 py-2.5 rounded-full bg-rune-gold text-obsidian-950 text-sm font-semibold tracking-wider uppercase transition-all duration-200 group-hover:bg-rune-glow">
+          {session?.dailyCompleted ? 'View Today’s Sigil' : 'Reconstruct'}
+        </span>
+        <span className="text-xs text-stone-muted tracking-wide">
+          {session ? `${session.communitySolves} reconstructed today` : 'Ready'}
+        </span>
       </footer>
-    </div>
+    </button>
   );
 };
 

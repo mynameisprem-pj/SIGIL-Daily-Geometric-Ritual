@@ -2,72 +2,47 @@ import './index.css';
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { navigateTo } from '@devvit/web/client';
-import { useCounter } from './hooks/useCounter';
+import { STAGE_VIEWBOX_SIZE } from '../shared/constants';
+import { useSession } from './hooks/useSession';
 
 export const App = () => {
-  const { count, username, loading, increment, decrement } = useCounter();
+  const { session, loading } = useSession();
+
   return (
-    <div className="flex relative flex-col justify-center items-center min-h-screen gap-4 bg-white dark:bg-gray-900">
-      <img
-        className="object-contain w-1/2 max-w-[250px] mx-auto"
-        src="/snoo.png"
-        alt="Snoo"
-      />
-      <div className="flex flex-col items-center gap-2">
-        <h1 className="text-2xl font-bold text-center text-gray-900 dark:text-gray-100">
-          {username ? `Hey ${username} 👋` : ''}
-        </h1>
-        <p className="text-base text-center text-gray-600 dark:text-gray-300">
-          Edit{' '}
-          <span className="bg-[#e5ebee] dark:bg-gray-700 px-1 py-0.5 rounded">
-            src/client/game.tsx
-          </span>{' '}
-          to get started.
+    <main className="relative flex flex-col items-center justify-between w-full h-screen bg-obsidian-950 text-ivory p-4 sm:p-6 overflow-hidden">
+      {/* Minimal Top HUD */}
+      <header className="w-full max-w-xl flex items-center justify-between text-xs tracking-[0.2em] uppercase text-stone-muted">
+        <span>SIGIL #{session?.edition ?? 1}</span>
+        <span>{loading ? '...' : session?.dateKey}</span>
+      </header>
+
+      {/* Dedicated Puzzle Stage Container (Phase 1 SVG Engine mounts here) */}
+      <section className="relative flex items-center justify-center w-full max-w-[440px] aspect-square rounded-2xl bg-obsidian-900/80 border border-white/8 shadow-2xl">
+        <svg
+          viewBox={`0 0 ${STAGE_VIEWBOX_SIZE} ${STAGE_VIEWBOX_SIZE}`}
+          className="w-full h-full"
+        >
+          <circle
+            cx={STAGE_VIEWBOX_SIZE / 2}
+            cy={STAGE_VIEWBOX_SIZE / 2}
+            r={140}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeDasharray="4 8"
+            className="text-white/15"
+          />
+        </svg>
+        <p className="absolute bottom-4 text-[11px] tracking-[0.18em] uppercase text-stone-muted/70">
+          Stage Ready — Phase 1 Engine Next
         </p>
-      </div>
-      <div className="flex items-center justify-center mt-5">
-        <button
-          className="flex items-center justify-center bg-[#d93900] dark:bg-orange-600 text-white w-14 h-14 text-[2.5em] rounded-full cursor-pointer font-mono leading-none transition-colors hover:bg-[#c23300] dark:hover:bg-orange-700"
-          onClick={decrement}
-          disabled={loading}
-        >
-          -
-        </button>
-        <span className="text-[1.8em] font-medium mx-5 min-w-[50px] text-center leading-none text-gray-900 dark:text-white">
-          {loading ? '...' : count}
-        </span>
-        <button
-          className="flex items-center justify-center bg-[#d93900] dark:bg-orange-600 text-white w-14 h-14 text-[2.5em] rounded-full cursor-pointer font-mono leading-none transition-colors hover:bg-[#c23300] dark:hover:bg-orange-700"
-          onClick={increment}
-          disabled={loading}
-        >
-          +
-        </button>
-      </div>
-      <footer className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-3 text-[0.8em] text-gray-600 dark:text-gray-400">
-        <button
-          className="cursor-pointer hover:text-gray-900 dark:hover:text-white transition-colors"
-          onClick={() => navigateTo('https://developers.reddit.com/docs')}
-        >
-          Docs
-        </button>
-        <span className="text-gray-300 dark:text-gray-600">|</span>
-        <button
-          className="cursor-pointer hover:text-gray-900 dark:hover:text-white transition-colors"
-          onClick={() => navigateTo('https://www.reddit.com/r/Devvit')}
-        >
-          r/Devvit
-        </button>
-        <span className="text-gray-300 dark:text-gray-600">|</span>
-        <button
-          className="cursor-pointer hover:text-gray-900 dark:hover:text-white transition-colors"
-          onClick={() => navigateTo('https://discord.com/invite/R7yu2wh9Qz')}
-        >
-          Discord
-        </button>
+      </section>
+
+      {/* Uncluttered Bottom Bar */}
+      <footer className="w-full max-w-xl flex items-center justify-center text-xs text-stone-muted">
+        <span>Streak: {session?.streak ?? 0}d</span>
       </footer>
-    </div>
+    </main>
   );
 };
 

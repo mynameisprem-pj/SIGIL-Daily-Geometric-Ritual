@@ -16,27 +16,12 @@ menu.post('/post-create', async (c) => {
       200
     );
   } catch (error) {
-    console.error(`Error creating post: ${error}`);
+    console.error(`Error creating Sigil post: ${error}`);
     return c.json<UiResponse>(
       {
-        showToast: 'Failed to create post',
+        showToast: 'Could not publish daily Sigil post.',
       },
       400
     );
   }
-});
-
-menu.post('/example-form', async (c) => {
-  return c.json<UiResponse>(
-    {
-      showForm: {
-        name: 'exampleForm',
-        form: {
-          title: 'Example form',
-          fields: [{ name: 'message', label: 'Message', type: 'string' }],
-        },
-      },
-    },
-    200
-  );
 });

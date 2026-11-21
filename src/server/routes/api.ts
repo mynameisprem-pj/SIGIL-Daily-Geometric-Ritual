@@ -1,93 +1,48 @@
 import { Hono } from 'hono';
-import { context, redis, reddit } from '@devvit/web/server';
-import type {
-  DecrementResponse,
-  IncrementResponse,
-  InitResponse,
-} from '../../shared/api';
-
-type ErrorResponse = {
-  status: 'error';
-  message: string;
-};
+import { context, reddit, redis } from '@devvit/web/server';
+import { getEditionNumber, getTodayUtcDateKey } from '../../shared/constants';
+import type { ApiErrorResponse, SessionInitResponse } from '../../shared/types';
 
 export const api = new Hono();
 
-api.get('/init', async (c) => {
+api.get('/session', async (c) => {
   const { postId } = context;
 
   if (!postId) {
-    console.error('API Init Error: postId not found in devvit context');
-    return c.json<ErrorResponse>(
-      {
-        status: 'error',
-        message: 'postId is required but missing from context',
-      },
+    return c.json<ApiErrorResponse>(
+      { status: 'error', message: 'Missing postId in Devvit context.' },
       400
     );
   }
 
   try {
-    const [count, username] = await Promise.all([
-      redis.get('count'),
+    const dateKey = getTodayUtcDateKey();
+    const edition = getEditionNumber(dateKey);
+
+    const [username, solvesRaw] = await Promise.all([
       reddit.getCurrentUsername(),
+      redis.get(`sigil:daily:${dateKey}:solves`),
     ]);
 
-    return c.json<InitResponse>({
-      type: 'init',
-      postId: postId,
-      count: count ? parseInt(count) : 0,
-      username: username ?? 'anonymous',
+    const resolvedUser = username ?? 'wanderer';
+    const [streakRaw, completedRaw] = await Promise.all([
+      redis.get(`sigil:user:${resolvedUser}:streak`),
+      redis.get(`sigil:daily:${dateKey}:done:${resolvedUser}`),
+    ]);
+
+    return c.json<SessionInitResponse>({
+      status: 'ok',
+      postId,
+      username: resolvedUser,
+      dateKey,
+      edition,
+      communitySolves: solvesRaw ? parseInt(solvesRaw, 10) : 0,
+      streak: streakRaw ? parseInt(streakRaw, 10) : 0,
+      dailyCompleted: completedRaw === '1',
     });
   } catch (error) {
-    console.error(`API Init Error for post ${postId}:`, error);
-    let errorMessage = 'Unknown error during initialization';
-    if (error instanceof Error) {
-      errorMessage = `Initialization failed: ${error.message}`;
-    }
-    return c.json<ErrorResponse>(
-      { status: 'error', message: errorMessage },
-      400
-    );
+    const message =
+      error instanceof Error ? error.message : 'Failed to initialize session.';
+    return c.json<ApiErrorResponse>({ status: 'error', message }, 500);
   }
-});
-
-api.post('/increment', async (c) => {
-  const { postId } = context;
-  if (!postId) {
-    return c.json<ErrorResponse>(
-      {
-        status: 'error',
-        message: 'postId is required',
-      },
-      400
-    );
-  }
-
-  const count = await redis.incrBy('count', 1);
-  return c.json<IncrementResponse>({
-    count,
-    postId,
-    type: 'increment',
-  });
-});
-
-api.post('/decrement', async (c) => {
-  const { postId } = context;
-  if (!postId) {
-    return c.json<ErrorResponse>(
-      {
-        status: 'error',
-        message: 'postId is required',
-      },
-      400
-    );
-  }
-
-  const count = await redis.incrBy('count', -1);
-  return c.json<DecrementResponse>({
-    count,
-    postId,
-    type: 'decrement',
-  });
 });
