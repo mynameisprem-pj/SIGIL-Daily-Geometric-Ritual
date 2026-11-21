@@ -162,3 +162,74 @@ export function buildZenEntry(
     puzzle,
   };
 }
+
+export interface PracticeCatalogItem {
+  readonly key: string;
+  readonly label: string;
+  readonly entry: ScheduledPuzzleEntry;
+}
+
+const PRELUDE_SEEDS: readonly {
+  readonly code: string;
+  readonly numeral: string;
+  readonly pieces: 6 | 7 | 8;
+}[] = [
+  { code: 'prelude-1', numeral: 'I', pieces: 6 },
+  { code: 'prelude-2', numeral: 'II', pieces: 6 },
+  { code: 'prelude-3', numeral: 'III', pieces: 7 },
+  { code: 'prelude-4', numeral: 'IV', pieces: 7 },
+  { code: 'prelude-5', numeral: 'V', pieces: 8 },
+];
+
+export function buildPreludeEntry(preludeIndex: number): ScheduledPuzzleEntry {
+  const spec =
+    PRELUDE_SEEDS[
+      Math.max(0, Math.min(PRELUDE_SEEDS.length - 1, preludeIndex))
+    ]!;
+  const seed = `sigil:v1:prelude:${spec.code}`;
+  const puzzle = synthesizeCalibratedSigil(seed, spec.pieces, spec.code);
+  const meta = getTierMetadata(spec.pieces);
+
+  return {
+    mode: 'practice',
+    dateKey: `PRELUDE-${spec.numeral}`,
+    edition: preludeIndex + 1,
+    seed,
+    tier: meta.tier,
+    tierLabel: meta.tierLabel,
+    pieceCount: puzzle.pieces.length,
+    puzzle,
+  };
+}
+
+/**
+ * Builds the playable Practice Archive list:
+ * - Up to 14 most recent past Daily Editions (#(currentEdition - 1) down to #1)
+ * - Plus 5 curated Founders' Prelude Seals so Day-1 players & judges always have a rich archive.
+ */
+export function listPracticeCatalog(
+  currentEdition: number
+): PracticeCatalogItem[] {
+  const items: PracticeCatalogItem[] = [];
+
+  const minEdition = Math.max(1, currentEdition - 14);
+  for (let ed = currentEdition - 1; ed >= minEdition; ed--) {
+    const entry = buildPracticeEntryByEdition(ed);
+    items.push({
+      key: `ed-${ed}`,
+      label: `Edition #${String(ed).padStart(3, '0')}`,
+      entry,
+    });
+  }
+
+  PRELUDE_SEEDS.forEach((spec, idx) => {
+    const entry = buildPreludeEntry(idx);
+    items.push({
+      key: spec.code,
+      label: `Prelude ${spec.numeral}`,
+      entry,
+    });
+  });
+
+  return items;
+}

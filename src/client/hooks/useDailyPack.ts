@@ -7,18 +7,20 @@ import type {
 } from '../../shared/types';
 import {
   buildDailySigilPack,
-  buildPracticeEntryByEdition,
   buildZenEntry,
+  listPracticeCatalog,
+  type PracticeCatalogItem,
 } from '../engine/dailyPack';
 
 export interface UseDailyPackResult {
   readonly pack: DailySigilPack;
+  readonly practiceCatalog: readonly PracticeCatalogItem[];
   readonly activeMode: GameMode;
   readonly activeEntry: ScheduledPuzzleEntry;
-  readonly practiceEdition: number;
+  readonly activePracticeKey: string;
   readonly zenIndex: number;
   selectMode: (mode: GameMode) => void;
-  selectPracticeEdition: (edition: number) => void;
+  selectPracticeItem: (key: string) => void;
   advanceZen: () => void;
 }
 
@@ -30,10 +32,14 @@ export function useDailyPack(
   const userSalt = username ?? 'wanderer';
 
   const pack = useMemo(() => buildDailySigilPack(dateKey), [dateKey]);
+  const practiceCatalog = useMemo(
+    () => listPracticeCatalog(pack.edition),
+    [pack.edition]
+  );
 
   const [activeMode, setActiveMode] = useState<GameMode>('daily');
-  const [practiceEdition, setPracticeEdition] = useState<number>(() =>
-    Math.max(1, pack.edition - 1)
+  const [activePracticeKey, setActivePracticeKey] = useState<string>(
+    () => practiceCatalog[0]?.key ?? 'prelude-1'
   );
   const [zenIndex, setZenIndex] = useState<number>(1);
 
@@ -45,19 +51,23 @@ export function useDailyPack(
         return pack.bonus1;
       case 'bonus-2':
         return pack.bonus2;
-      case 'practice':
-        return buildPracticeEntryByEdition(practiceEdition);
+      case 'practice': {
+        const match =
+          practiceCatalog.find((item) => item.key === activePracticeKey) ??
+          practiceCatalog[0]!;
+        return match.entry;
+      }
       case 'zen':
         return buildZenEntry(zenIndex, userSalt);
     }
-  }, [activeMode, pack, practiceEdition, userSalt, zenIndex]);
+  }, [activeMode, activePracticeKey, pack, practiceCatalog, userSalt, zenIndex]);
 
   const selectMode = useCallback((mode: GameMode) => {
     setActiveMode(mode);
   }, []);
 
-  const selectPracticeEdition = useCallback((edition: number) => {
-    setPracticeEdition(Math.max(1, edition));
+  const selectPracticeItem = useCallback((key: string) => {
+    setActivePracticeKey(key);
     setActiveMode('practice');
   }, []);
 
@@ -68,12 +78,13 @@ export function useDailyPack(
 
   return {
     pack,
+    practiceCatalog,
     activeMode,
     activeEntry,
-    practiceEdition,
+    activePracticeKey,
     zenIndex,
     selectMode,
-    selectPracticeEdition,
+    selectPracticeItem,
     advanceZen,
   };
 }
