@@ -1,0 +1,166 @@
+@import '@fontsource-variable/cinzel';
+@import '@fontsource-variable/plus-jakarta-sans';
+@import '@fontsource-variable/jetbrains-mono';
+@import 'tailwindcss';
+
+@theme {
+  /* Typography Families (100% locally bundled WOFF2 via Vite) */
+  --font-display: 'Cinzel Variable', Georgia, serif;
+  --font-sans: 'Plus Jakarta Sans Variable', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+
+  /* Basalt Surfaces (Volcanic Lapidary Tablet) */
+  --color-basalt-950: #08090d;
+  --color-basalt-900: #0e1118;
+  --color-basalt-850: #161b26;
+  --color-basalt-800: #1f2636;
+
+  /* Alabaster & Verified High-Contrast Stone Text */
+  --color-alabaster: #f4f0e6;
+  --color-alabaster-core: #fffdf8;
+  --color-stone-300: #a7b0c4; /* 9.08:1 AAA on basalt-950 */
+  --color-stone-400: #848ea5; /* 5.96:1 AA+ on basalt-950 */
+
+  /* Precious Metals: Molten Brass */
+  --color-brass: #e5b869; /* 10.22:1 AAA on basalt-900 */
+  --color-brass-bright: #fff0c2;
+  --color-brass-deep: #9c7432;
+
+  /* Mastery Exclusive: Pale Jade (ONLY for Perfect Reconstruction & Mastery) */
+  --color-jade: #6bc4a6; /* 8.89:1 AAA on basalt-900 */
+  --color-jade-bright: #b6f0dc;
+
+  /* Backward-compatible aliases so existing components never break */
+  --color-obsidian-950: #08090d;
+  --color-obsidian-900: #0e1118;
+  --color-obsidian-800: #161b26;
+  --color-rune-gold: #e5b869;
+  --color-rune-glow: #fff0c2;
+  --color-stone-muted: #a7b0c4;
+  --color-ivory: #f4f0e6;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: var(--color-basalt-950);
+    color: var(--color-alabaster);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    touch-action: none;
+    overflow: hidden;
+  }
+}
+
+/*Lightweight GPU-friendly SVG & UI Keyframes (Zero animated drop-shadow/blur filters)*/
+@keyframes sigil-hint-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 0.88;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes sigil-snap-ripple {
+  0% {
+    opacity: 0.92;
+    transform: scale(0.68);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.85);
+  }
+}
+
+@keyframes sigil-ignition-shockwave {
+  0% {
+    opacity: 0.78;
+    transform: scale(0.35);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.22);
+  }
+}
+
+@keyframes sigil-sheen-sweep {
+  0% {
+    stroke-dashoffset: 1;
+    opacity: 0.95;
+  }
+  75% {
+    opacity: 0.95;
+  }
+  100% {
+    stroke-dashoffset: -1;
+    opacity: 0;
+  }
+}
+
+@keyframes sigil-reveal-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-hint-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: sigil-hint-pulse 2.4s ease-in-out infinite;
+}
+
+.animate-snap-burst {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: sigil-snap-ripple 440ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-ignition-shockwave {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: sigil-ignition-shockwave 880ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-sheen-sweep {
+  animation: sigil-sheen-sweep 1050ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.animate-reveal-rise {
+  animation: sigil-reveal-rise 420ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Smooth 140ms spring applied ONLY to inner rotation wrapper when NOT actively dragging */
+.piece-rotator-spring {
+  transition: transform 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-hint-pulse,
+  .animate-snap-burst,
+  .animate-ignition-shockwave,
+  .animate-sheen-sweep,
+  .animate-reveal-rise {
+    animation: none !important;
+  }
+
+  .piece-rotator-spring {
+    transition: none !important;
+  }
+}
