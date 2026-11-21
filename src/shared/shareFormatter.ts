@@ -36,10 +36,13 @@ function getModeHeaderTag(mode: GameMode, edition: number): string {
 }
 
 /**
- * Generates a crisp, spoiler-free typographic dispatch for Reddit comments & clipboard sharing.
+ * Generates a crisp, spoiler-free plain-text dispatch for clipboard sharing.
  */
 export function buildShareDispatchText(payload: ShareCardPayload): string {
-  const clampedPieces = Math.max(1, Math.min(12, Math.floor(payload.pieceCount)));
+  const clampedPieces = Math.max(
+    1,
+    Math.min(12, Math.floor(payload.pieceCount))
+  );
   const glyphBar = '◈'.repeat(clampedPieces);
   const header = `${getModeHeaderTag(payload.mode, payload.edition)} — ${payload.sigilName}`;
 
@@ -47,13 +50,10 @@ export function buildShareDispatchText(payload: ShareCardPayload): string {
     ? `${glyphBar} Perfect Reconstruction (Jade Seal)`
     : `${glyphBar} ${payload.score.gradeLabel}`;
 
-  // Zen mode emphasizes calm untimed reconstruction
   if (payload.mode === 'zen') {
-    return [
-      header,
-      sealLine,
-      `${payload.moves} moves · Meditative Flow`,
-    ].join('\n');
+    return [header, sealLine, `${payload.moves} moves · Meditative Flow`].join(
+      '\n'
+    );
   }
 
   const metrics: string[] = [
@@ -79,4 +79,72 @@ export function buildShareDispatchText(payload: ShareCardPayload): string {
   }
 
   return [header, sealLine, metrics.join(' · ')].join('\n');
+}
+
+/**
+ * Generates a spoiler-free Reddit Markdown comment reply for the Daily Ritual Ledger.
+ */
+export function buildRedditMarkdownComment(payload: ShareCardPayload): string {
+  const clampedPieces = Math.max(
+    1,
+    Math.min(12, Math.floor(payload.pieceCount))
+  );
+  const glyphBar = '◈'.repeat(clampedPieces);
+  const header = `**${getModeHeaderTag(payload.mode, payload.edition)} — ${payload.sigilName}**`;
+
+  const sealLine = payload.score.isPerfect
+    ? `\`${glyphBar}\` **Jade Seal** · Perfect Reconstruction`
+    : `\`${glyphBar}\` ${payload.score.gradeLabel}`;
+
+  if (payload.mode === 'zen') {
+    return [header, sealLine, `${payload.moves} moves · Meditative Flow`].join(
+      '  \n'
+    );
+  }
+
+  const metrics: string[] = [
+    `**${payload.score.totalScore.toLocaleString('en-US')} pts**`,
+    `${payload.moves} moves`,
+    `\`${formatClockDurationMs(payload.elapsedMs)}\``,
+  ];
+
+  if (
+    payload.mode === 'daily' &&
+    typeof payload.percentile === 'number' &&
+    payload.percentile > 0
+  ) {
+    metrics.push(`Top ${Math.max(1, Math.round(payload.percentile))}%`);
+  }
+
+  if (
+    payload.mode === 'daily' &&
+    typeof payload.streak === 'number' &&
+    payload.streak > 0
+  ) {
+    metrics.push(`${payload.streak}d streak`);
+  }
+
+  return [header, sealLine, metrics.join(' · ')].join('  \n');
+}
+
+/**
+ * Formats a subtle, high-craft subreddit prestige flair reflecting daily streak & Jade mastery.
+ */
+export function formatPrestigeUserFlair(
+  streak: number,
+  perfectCount: number
+): string {
+  const safeStreak = Math.max(0, Math.floor(streak));
+  const safePerfect = Math.max(0, Math.floor(perfectCount));
+
+  if (safePerfect > 0 && safeStreak > 0) {
+    return `◈ Grand Lapidary · ${safeStreak}d`;
+  }
+  if (safePerfect > 0) {
+    return `◈ Jade Engraver · ${safePerfect}`;
+  }
+  if (safeStreak >= 7) {
+    return `◇ Master Scribe · ${safeStreak}d`;
+  }
+  return `◇ Sigil Scribe · ${Math.max(1, safeStreak)}d`;
 }

@@ -1,6 +1,15 @@
 {
   "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
   "name": "sigil-game",
+  "permissions": {
+    "redis": true,
+    "journeys": true,
+    "reddit": {
+      "enable": true,
+      "scope": "moderator",
+      "asUser": ["SUBMIT_COMMENT"]
+    }
+  },
   "post": {
     "dir": "dist/client",
     "entrypoints": {
@@ -30,6 +39,14 @@
   },
   "triggers": {
     "onAppInstall": "/internal/triggers/on-app-install"
+  },
+  "scheduler": {
+    "tasks": {
+      "publish-daily-sigil": {
+        "endpoint": "/internal/scheduler/daily-post",
+        "cron": "0 0 * * *"
+      }
+    }
   },
   "scripts": {
     "dev": "vite build --watch",

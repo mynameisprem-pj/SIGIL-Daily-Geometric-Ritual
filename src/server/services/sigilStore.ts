@@ -1,11 +1,13 @@
-import { redis } from '@devvit/web/server';
+import { context, reddit, redis } from '@devvit/web/server';
 import { getEditionNumber } from '../../shared/constants';
 import {
   calculateSigilScore,
   decodeLeaderboardTotalScore,
   encodeLeaderboardCompositeScore,
 } from '../../shared/scoring';
+import { formatPrestigeUserFlair } from '../../shared/shareFormatter';
 import type {
+  CommunityPulseStats,
   CompletePuzzleRequest,
   CompletePuzzleResponse,
   DailyLeaderboardSnapshot,
@@ -36,6 +38,9 @@ const Keys = {
   dailyLeaderboardZSet: (dateKey: string) => `sigil:daily:${dateKey}:lb`,
   dailyLeaderboardMeta: (dateKey: string) => `sigil:daily:${dateKey}:lb_meta`,
   dailyAnonSolves: (dateKey: string) => `sigil:daily:${dateKey}:anon_solves`,
+  dailyAggregates: (dateKey: string) => `sigil:daily:${dateKey}:agg`,
+  postSharedByUser: (postId: string, username: string) =>
+    `sigil:post:${postId}:shared:${username}`,
 } as const;
 
 function parseProfileHash(
@@ -95,23 +100,97 @@ export async function getUserSealRecords(
     }
   }
 
-  // Sort newest / highest edition first and cap payload size cleanly
   parsed.sort((a, b) => b.completedAtIso.localeCompare(a.completedAtIso));
   return parsed.slice(0, MAX_RETURNED_RECORDS);
 }
 
-export async function getDailyCommunitySolves(dateKey: string): Promise<number> {
-  const [rankedCount, anonRaw] = await Promise.all([
+export async function getDailyCommunityPulse(
+  dateKey: string
+): Promise<CommunityPulseStats> {
+  const [rankedCount, anonRaw, aggRaw] = await Promise.all([
     redis.zCard(Keys.dailyLeaderboardZSet(dateKey)),
     redis.get(Keys.dailyAnonSolves(dateKey)),
+    redis.hGetAll(Keys.dailyAggregates(dateKey)),
   ]);
+
   const anonCount = anonRaw ? parseInt(anonRaw, 10) || 0 : 0;
-  return rankedCount + anonCount;
+  const aggSolves = parseInt(aggRaw?.solves ?? '0', 10) || 0;
+  const perfectSolves = parseInt(aggRaw?.perfectSolves ?? '0', 10) || 0;
+  const sumMoves = parseInt(aggRaw?.sumMoves ?? '0', 10) || 0;
+  const sumElapsedMs = parseInt(aggRaw?.sumElapsedMs ?? '0', 10) || 0;
+
+  const totalSolves = Math.max(rankedCount + anonCount, aggSolves);
+  const jadeRatePercent =
+    aggSolves > 0
+      ? Math.min(100, Math.round((perfectSolves / aggSolves) * 100))
+      : 0;
+
+  return {
+    totalSolves,
+    perfectSolves,
+    jadeRatePercent,
+    avgMoves: aggSolves > 0 ? Math.round(sumMoves / aggSolves) : null,
+    avgElapsedMs: aggSolves > 0 ? Math.round(sumElapsedMs / aggSolves) : null,
+  };
 }
 
-/**
- * Queries Today's Top 10 Leaderboard + Personal Rank + Top Percentile in minimal Redis round-trips.
- */
+async function incrementCommunityAggregate(
+  dateKey: string,
+  moves: number,
+  elapsedMs: number,
+  isPerfect: boolean
+): Promise<void> {
+  const aggKey = Keys.dailyAggregates(dateKey);
+  const ops: Promise<unknown>[] = [
+    redis.hIncrBy(aggKey, 'solves', 1),
+    redis.hIncrBy(aggKey, 'sumMoves', moves),
+    redis.hIncrBy(aggKey, 'sumElapsedMs', elapsedMs),
+  ];
+  if (isPerfect) {
+    ops.push(redis.hIncrBy(aggKey, 'perfectSolves', 1));
+  }
+  await Promise.all(ops);
+}
+
+export async function getSharedCommentId(
+  postId: string,
+  username: string | null
+): Promise<string | null> {
+  if (!username) return null;
+  const existing = await redis.get(Keys.postSharedByUser(postId, username));
+  return existing ?? null;
+}
+
+export async function markSharedCommentId(
+  postId: string,
+  username: string,
+  commentId: string
+): Promise<void> {
+  await redis.set(Keys.postSharedByUser(postId, username), commentId);
+}
+
+async function trySyncUserPrestigeFlair(
+  username: string,
+  profile: StoredUserProfile
+): Promise<void> {
+  const subredditName = context.subredditName;
+  if (!subredditName) return;
+
+  try {
+    const flairText = formatPrestigeUserFlair(
+      profile.currentStreak,
+      profile.perfectCount
+    );
+    await reddit.setUserFlair({
+      subredditName,
+      username,
+      text: flairText,
+    });
+  } catch {
+    // Best-effort: unapproved playtests or subreddits with locked flairs never interrupt completion
+  }
+}
+
 export async function getDailyLeaderboardSnapshot(
   dateKey: string,
   username: string | null
@@ -133,7 +212,6 @@ export async function getDailyLeaderboardSnapshot(
     };
   }
 
-  // Fetch highest Top 10 from the tail of the ascending sorted set: [max(0, total - 10) .. total - 1]
   const startIdx = Math.max(0, totalPlayers - TOP_LEADERBOARD_LIMIT);
   const stopIdx = totalPlayers - 1;
 
@@ -143,7 +221,6 @@ export async function getDailyLeaderboardSnapshot(
     username ? redis.zScore(lbKey, username) : Promise.resolve(undefined),
   ]);
 
-  // Reverse ascending slice so #1 highest composite score comes first
   const topMembersDesc = [...rawTopAscending].reverse();
 
   const metaFieldsToFetch = new Set<string>(
@@ -207,10 +284,6 @@ export async function getDailyLeaderboardSnapshot(
   };
 }
 
-/**
- * Records a validated puzzle completion, computes authoritative server score,
- * updates Main Daily streak + first-attempt leaderboard, and persists Jade/Best seals.
- */
 export async function recordPuzzleCompletion(
   username: string | null,
   submission: CompletePuzzleRequest,
@@ -237,17 +310,23 @@ export async function recordPuzzleCompletion(
     completedAtIso: nowIso,
   };
 
-  // Effective daily dateKey is pinned to server UTC date when mode === 'daily'
   const effectiveDailyDateKey =
     submission.mode === 'daily' ? serverTodayDateKey : submission.dateKey;
 
-  // Logged-out / anonymous viewer fallback
   if (!username) {
     if (submission.mode === 'daily') {
-      await redis.incrBy(Keys.dailyAnonSolves(effectiveDailyDateKey), 1);
+      await Promise.all([
+        redis.incrBy(Keys.dailyAnonSolves(effectiveDailyDateKey), 1),
+        incrementCommunityAggregate(
+          effectiveDailyDateKey,
+          submission.moves,
+          submission.elapsedMs,
+          authoritativeScore.isPerfect
+        ),
+      ]);
     }
-    const [communitySolves, leaderboard] = await Promise.all([
-      getDailyCommunitySolves(serverTodayDateKey),
+    const [communityPulse, leaderboard] = await Promise.all([
+      getDailyCommunityPulse(serverTodayDateKey),
       getDailyLeaderboardSnapshot(serverTodayDateKey, null),
     ]);
 
@@ -257,13 +336,13 @@ export async function recordPuzzleCompletion(
       firstDailyAttemptRecorded: false,
       streak: 1,
       bestStreak: 1,
-      communitySolves,
+      communitySolves: communityPulse.totalSolves,
+      communityPulse,
       record: incomingRecord,
       leaderboard,
     };
   }
 
-  // Authenticated Reddit Player
   const [prevProfile, existingRecordRaw, existingDailyScore] = await Promise.all(
     [
       getUserProfile(username),
@@ -289,7 +368,6 @@ export async function recordPuzzleCompletion(
 
   let firstDailyAttemptRecorded = false;
 
-  // First-Attempt Competitive Integrity: Only write Main Daily Leaderboard on first solve of the day!
   const writeOps: Promise<unknown>[] = [
     redis.hSet(Keys.userProfile(username), serializeProfileHash(nextProfile)),
     redis.hSet(Keys.userRecords(username), {
@@ -317,14 +395,24 @@ export async function recordPuzzleCompletion(
       }),
       redis.hSet(Keys.dailyLeaderboardMeta(effectiveDailyDateKey), {
         [username]: JSON.stringify(meta),
-      })
+      }),
+      incrementCommunityAggregate(
+        effectiveDailyDateKey,
+        submission.moves,
+        submission.elapsedMs,
+        authoritativeScore.isPerfect
+      )
     );
   }
 
   await Promise.all(writeOps);
 
-  const [communitySolves, leaderboard] = await Promise.all([
-    getDailyCommunitySolves(serverTodayDateKey),
+  if (submission.mode === 'daily' || newlyEarnedPerfect) {
+    void trySyncUserPrestigeFlair(username, nextProfile);
+  }
+
+  const [communityPulse, leaderboard] = await Promise.all([
+    getDailyCommunityPulse(serverTodayDateKey),
     getDailyLeaderboardSnapshot(serverTodayDateKey, username),
   ]);
 
@@ -334,7 +422,8 @@ export async function recordPuzzleCompletion(
     firstDailyAttemptRecorded,
     streak: nextProfile.currentStreak,
     bestStreak: nextProfile.bestStreak,
-    communitySolves,
+    communitySolves: communityPulse.totalSolves,
+    communityPulse,
     record: merged,
     leaderboard,
   };

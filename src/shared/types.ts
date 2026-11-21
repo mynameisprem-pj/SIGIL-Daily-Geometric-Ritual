@@ -179,6 +179,14 @@ export interface DailyLeaderboardSnapshot {
   readonly personalEntry: LeaderboardRow | null;
 }
 
+export interface CommunityPulseStats {
+  readonly totalSolves: number;
+  readonly perfectSolves: number;
+  readonly jadeRatePercent: number;
+  readonly avgMoves: number | null;
+  readonly avgElapsedMs: number | null;
+}
+
 export interface SessionInitResponse {
   readonly status: 'ok';
   readonly postId: string;
@@ -187,6 +195,8 @@ export interface SessionInitResponse {
   readonly dateKey: string;
   readonly edition: number;
   readonly communitySolves: number;
+  readonly communityPulse: CommunityPulseStats;
+  readonly commentSharedToday: boolean;
   readonly streak: number;
   readonly bestStreak: number;
   readonly dailyCompleted: boolean;
@@ -216,8 +226,25 @@ export interface CompletePuzzleResponse {
   readonly streak: number;
   readonly bestStreak: number;
   readonly communitySolves: number;
+  readonly communityPulse: CommunityPulseStats;
   readonly record: PersistedSealRecord;
   readonly leaderboard: DailyLeaderboardSnapshot;
+}
+
+export interface ShareCommentRequest {
+  readonly mode: GameMode;
+  readonly edition: number;
+  readonly sigilName: string;
+  readonly pieceCount: number;
+  readonly moves: number;
+  readonly parMoves: number;
+  readonly elapsedMs: number;
+}
+
+export interface ShareCommentResponse {
+  readonly status: 'ok';
+  readonly commentId: string;
+  readonly alreadyShared: boolean;
 }
 
 export interface LeaderboardApiResponse {
