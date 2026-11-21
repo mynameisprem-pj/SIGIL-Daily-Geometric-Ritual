@@ -1,8 +1,27 @@
 export const SIGIL_EPOCH_UTC = '2026-11-21';
 
-export const STAGE_VIEWBOX_SIZE = 400;
+/** Full square SVG coordinate space (central sanctum + outer scatter ring) */
+export const STAGE_VIEWBOX_SIZE = 520;
+export const SANCTUM_CENTER = STAGE_VIEWBOX_SIZE / 2; // 260
+export const SANCTUM_RADIUS = 136;
+
+/** Interaction & snap tolerances */
 export const ROTATION_STEP_DEG = 45;
-export const SNAP_DISTANCE_PX = 22;
+export const SNAP_DISTANCE_PX = 20;
+export const SNAP_ANGLE_TOLERANCE_DEG = 5;
+
+/** Maximum Hausdorff point-cloud deviation (in SVG units) for visual congruence */
+export const GEOMETRY_CONGRUENCE_EPSILON_PX = 1.25;
+export const SAMPLE_SPACING_PX = 2.5;
+
+/** Scatter ring bounds so initial pieces surround the sanctum cleanly */
+export const SCATTER_INNER_RADIUS = 172;
+export const SCATTER_OUTER_RADIUS = 216;
+export const STAGE_PADDING_PX = 34;
+
+/** Touch/mouse drag threshold distinguishing a tap-to-rotate from a drag */
+export const TAP_MAX_TRAVEL_PX = 6;
+export const TAP_MAX_DURATION_MS = 280;
 
 export function getTodayUtcDateKey(now: Date = new Date()): string {
   return now.toISOString().slice(0, 10);
