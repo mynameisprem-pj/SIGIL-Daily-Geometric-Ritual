@@ -3,59 +3,104 @@ import './index.css';
 import { requestExpandedMode } from '@devvit/web/client';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { PROTOTYPE_SIGILS } from './engine/prototypeSigils';
 import { useSession } from './hooks/useSession';
 
 export const Splash = () => {
   const { session } = useSession();
+  const featuredSigil = PROTOTYPE_SIGILS[1] ?? PROTOTYPE_SIGILS[0]!;
 
   return (
     <button
       type="button"
       onClick={(e) => requestExpandedMode(e.nativeEvent, 'game')}
-      className="relative flex flex-col items-center justify-between w-full h-full min-h-[320px] p-6 bg-obsidian-950 text-ivory cursor-pointer overflow-hidden select-none group border-0 text-left"
+      className="relative flex flex-col items-center justify-between w-full h-full min-h-[340px] px-6 py-6 bg-basalt-950 text-alabaster cursor-pointer overflow-hidden select-none group border-0 text-center"
     >
-      {/* Subtle radial atmosphere */}
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(230,184,106,0.10)_0%,transparent_68%)]" />
+      {/* Subtle carved tablet border inset */}
+      <div className="pointer-events-none absolute inset-3 rounded-2xl border border-white/8 bg-basalt-900/55" />
 
-      {/* Top Edition Header */}
-      <header className="z-10 flex items-center gap-3 text-xs tracking-[0.24em] uppercase text-stone-muted">
-        <span>SIGIL #{session?.edition ?? 1}</span>
-        <span className="w-1 h-1 rounded-full bg-rune-gold/60" />
-        <span>DAILY RECONSTRUCTION</span>
+      {/* Top Engraved Eyebrow */}
+      <header className="z-10 flex items-center gap-2.5 text-[11px] font-medium tracking-[0.24em] uppercase text-stone-300">
+        <span className="text-brass font-mono">
+          #{String(session?.edition ?? 1).padStart(3, '0')}
+        </span>
+        <span className="w-1 h-1 rounded-full bg-brass/70" />
+        <span>DAILY GEOMETRIC RECONSTRUCTION</span>
       </header>
 
-      {/* Center Geometric Emblem Silhouette */}
-      <div className="z-10 my-4 flex items-center justify-center">
-        <svg
-          viewBox="0 0 160 160"
-          className="w-32 h-32 text-rune-gold transition-transform duration-500 ease-out group-hover:scale-105"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <circle
-            cx="80"
-            cy="80"
-            r="56"
-            className="opacity-25"
-            strokeDasharray="6 6"
-          />
-          <polygon points="80,26 128,108 32,108" className="opacity-85" />
-          <line x1="80" y1="26" x2="80" y2="134" className="opacity-90" />
-          <circle cx="80" cy="82" r="16" className="opacity-95" />
-        </svg>
+      {/* Center Medallion Preview + Engraved Title */}
+      <div className="z-10 my-2 flex flex-col items-center gap-3">
+        <div className="relative flex items-center justify-center w-32 h-32">
+          <svg
+            viewBox="110 110 300 300"
+            className="w-full h-full transition-transform duration-500 ease-out group-hover:scale-105"
+          >
+            <circle
+              cx="260"
+              cy="260"
+              r="134"
+              fill="#08090d"
+              stroke="rgba(229, 184, 105, 0.24)"
+              strokeWidth="1.5"
+            />
+            <circle
+              cx="260"
+              cy="260"
+              r="124"
+              fill="none"
+              stroke="rgba(255, 255, 255, 0.08)"
+              strokeWidth="1"
+              strokeDasharray="3 7"
+            />
+            <path
+              d={featuredSigil.unifiedSilhouettePathD}
+              fill="none"
+              stroke="var(--color-brass)"
+              strokeWidth="4.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path
+              d={featuredSigil.unifiedSilhouettePathD}
+              fill="none"
+              stroke="var(--color-brass-bright)"
+              strokeWidth="1.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              opacity="0.7"
+            />
+          </svg>
+        </div>
+
+        <div className="flex flex-col items-center gap-0.5">
+          <h1
+            className="text-2xl sm:text-[28px] font-semibold tracking-[0.22em] uppercase text-alabaster"
+            style={{ fontFamily: 'var(--font-display)' }}
+          >
+            SIGIL
+          </h1>
+          <p className="text-xs text-stone-300 tracking-wide">
+            Rotate and inlay scattered strokes to ignite the rune
+          </p>
+        </div>
       </div>
 
-      {/* Single Primary Action + Live Pulse */}
-      <footer className="z-10 flex flex-col items-center gap-2.5">
-        <span className="px-6 py-2.5 rounded-full bg-rune-gold text-obsidian-950 text-sm font-semibold tracking-wider uppercase transition-all duration-200 group-hover:bg-rune-glow">
-          {session?.dailyCompleted ? 'View Today’s Sigil' : 'Reconstruct'}
+      {/* Primary Brass CTA + Live Community Stat */}
+      <footer className="z-10 flex flex-col items-center gap-2">
+        <span className="inline-flex items-center gap-2 px-7 py-2.5 rounded-full bg-brass text-basalt-950 text-xs font-bold tracking-[0.18em] uppercase transition-colors duration-200 group-hover:bg-brass-bright">
+          {session?.dailyCompleted ? 'Inspect Today’s Sigil' : 'Begin Ritual'}
         </span>
-        <span className="text-xs text-stone-muted tracking-wide">
-          {session ? `${session.communitySolves} reconstructed today` : 'Ready'}
-        </span>
+        <div className="flex items-center gap-2 text-[11px] text-stone-300 font-mono">
+          <span>
+            {session ? `${session.communitySolves} solved today` : 'Ready'}
+          </span>
+          {session && session.streak > 0 && (
+            <>
+              <span className="text-stone-400">·</span>
+              <span className="text-brass">{session.streak}d streak</span>
+            </>
+          )}
+        </div>
       </footer>
     </button>
   );

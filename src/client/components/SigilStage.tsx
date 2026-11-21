@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useCallback, useLayoutEffect, useEffect, useMemo, useRef } from 'react';
 import {
   ROTATION_STEP_DEG,
   SANCTUM_CENTER,
@@ -15,9 +15,12 @@ import type {
   PieceRuntimeState,
   Point2D,
 } from '../../shared/types';
-import { distanceBetween } from '../engine/geometry';
+import { distanceBetween, polarPoint } from '../engine/geometry';
 import { rotateAngleByStep } from '../engine/solver';
-import type { SnapFeedbackEvent } from '../hooks/usePuzzleEngine';
+import type {
+  IgnitionPhase,
+  SnapFeedbackEvent,
+} from '../hooks/usePuzzleEngine';
 import { InteractiveSigilPiece, LockedSigilPiece } from './SigilPiece';
 
 interface SigilStageProps {
@@ -27,6 +30,8 @@ interface SigilStageProps {
   readonly selectedPieceId: string | null;
   readonly hasInteracted: boolean;
   readonly isComplete: boolean;
+  readonly isPerfect: boolean;
+  readonly ignitionPhase: IgnitionPhase;
   readonly lastSnapEvent: SnapFeedbackEvent | null;
   readonly onSelectPiece: (pieceId: string) => void;
   readonly onCommitDrop: (
@@ -63,6 +68,22 @@ function buildStatesByIdMap(
   return map;
 }
 
+// Precomputed static 24-division astrolabe degree ticks (zero per-render allocation)
+const BEZEL_TICKS = Array.from({ length: 24 }, (_, idx) => {
+  const angleDeg = idx * 15;
+  const isCardinal = idx % 6 === 0;
+  const isOctant = idx % 3 === 0;
+  const innerR = SANCTUM_RADIUS + 2;
+  const outerR =
+    SANCTUM_RADIUS + (isCardinal ? 12 : isOctant ? 8 : 5);
+  return {
+    angleDeg,
+    isCardinal,
+    p1: polarPoint(innerR, angleDeg),
+    p2: polarPoint(outerR, angleDeg),
+  };
+});
+
 export function SigilStage({
   puzzle,
   pieceMap,
@@ -70,6 +91,8 @@ export function SigilStage({
   selectedPieceId,
   hasInteracted,
   isComplete,
+  isPerfect,
+  ignitionPhase,
   lastSnapEvent,
   onSelectPiece,
   onCommitDrop,
@@ -78,19 +101,17 @@ export function SigilStage({
 }: SigilStageProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const groupNodesRef = useRef<Map<string, SVGGElement>>(new Map());
-  const haloNodesRef = useRef<Map<string, SVGElement>>(new Map());
+  const rotatorNodesRef = useRef<Map<string, SVGGElement>>(new Map());
+  const haloNodesRef = useRef<Map<string, SVGGElement>>(new Map());
   const activeDragRef = useRef<ActiveDragSession | null>(null);
   const wheelThrottleRef = useRef<number>(0);
 
-  // Latest state lookup ref so pointer/wheel/keyboard handlers stay stable across renders
   const statesByIdRef = useRef<Map<string, PieceRuntimeState>>(
     buildStatesByIdMap(states)
   );
-  
-  // Synchronize the lookup after React commits updated states
   useLayoutEffect(() => {
-    statesByIdRef.current = buildStatesByIdMap(states);
-  }, [states]);
+  statesByIdRef.current = buildStatesByIdMap(states);
+}, [states]);
 
   const lockedStates = useMemo(
     () => states.filter((s) => s.locked),
@@ -115,10 +136,28 @@ export function SigilStage({
     []
   );
 
+  const registerRotatorRef = useCallback(
+    (pieceId: string, node: SVGGElement | null) => {
+      if (node) rotatorNodesRef.current.set(pieceId, node);
+      else rotatorNodesRef.current.delete(pieceId);
+    },
+    []
+  );
+
   const registerHaloRef = useCallback(
     (pieceId: string, node: SVGCircleElement | null) => {
       if (node) haloNodesRef.current.set(pieceId, node);
       else haloNodesRef.current.delete(pieceId);
+    },
+    []
+  );
+
+  const setRotatorSpringEnabled = useCallback(
+    (pieceId: string, enabled: boolean) => {
+      const rotNode = rotatorNodesRef.current.get(pieceId);
+      if (!rotNode) return;
+      if (enabled) rotNode.classList.add('piece-rotator-spring');
+      else rotNode.classList.remove('piece-rotator-spring');
     },
     []
   );
@@ -151,11 +190,12 @@ export function SigilStage({
   const flushDragDomTransform = useCallback(
     (drag: ActiveDragSession) => {
       drag.rafId = null;
+      // Outer <g> updates ONLY translation (instantaneous 0ms lag!)
       const gNode = groupNodesRef.current.get(drag.pieceId);
       if (gNode) {
         gNode.setAttribute(
           'transform',
-          `translate(${drag.livePosition.x} ${drag.livePosition.y}) rotate(${drag.liveRotationDeg})`
+          `translate(${drag.livePosition.x} ${drag.livePosition.y})`
         );
       }
 
@@ -177,7 +217,6 @@ export function SigilStage({
     if (haloNode) haloNode.setAttribute('opacity', '0');
   }, []);
 
-  // Keyboard power controls for accessibility & desktop speed
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (isComplete) return;
@@ -229,12 +268,12 @@ export function SigilStage({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [flushDragDomTransform, isComplete, onRotatePiece, selectedPieceId]);
 
-  // Cleanly finalize if browser window loses focus mid-drag
   useEffect(() => {
     const handleWindowBlur = () => {
       const drag = activeDragRef.current;
       if (!drag) return;
       if (drag.rafId !== null) cancelAnimationFrame(drag.rafId);
+      setRotatorSpringEnabled(drag.pieceId, true);
       clearHalo(drag.pieceId);
       activeDragRef.current = null;
       onCommitDrop(
@@ -246,14 +285,11 @@ export function SigilStage({
 
     window.addEventListener('blur', handleWindowBlur);
     return () => window.removeEventListener('blur', handleWindowBlur);
-  }, [clearHalo, onCommitDrop]);
+  }, [clearHalo, onCommitDrop, setRotatorSpringEnabled]);
 
   const handlePiecePointerDown = useCallback(
     (e: React.PointerEvent<SVGGElement>, pieceId: string) => {
-      // Ignore right/middle mouse buttons here (right-click rotates via contextmenu)
       if (e.pointerType === 'mouse' && e.button !== 0) return;
-
-      // Ignore secondary multi-touch pointers if another finger is already dragging
       if (activeDragRef.current !== null) return;
 
       const pieceState = statesByIdRef.current.get(pieceId);
@@ -295,6 +331,10 @@ export function SigilStage({
       const travel = distanceBetween(svgPt, drag.startSvgPoint);
       if (travel > drag.maxTravelPx) {
         drag.maxTravelPx = travel;
+        // Disable rotation spring once active dragging begins so mid-drag rotation is instant
+        if (travel > TAP_MAX_TRAVEL_PX) {
+          setRotatorSpringEnabled(pieceId, false);
+        }
       }
 
       const rawX = svgPt.x + drag.grabOffset.x;
@@ -318,7 +358,7 @@ export function SigilStage({
         });
       }
     },
-    [clientToSvgPoint, flushDragDomTransform]
+    [clientToSvgPoint, flushDragDomTransform, setRotatorSpringEnabled]
   );
 
   const finishPointerInteraction = useCallback(
@@ -341,10 +381,12 @@ export function SigilStage({
         try {
           e.currentTarget.releasePointerCapture(e.pointerId);
         } catch {
-          // Ignore if browser already released capture during cancel
+          // Ignore if browser already released capture
         }
       }
 
+      // Restore smooth 140ms rotation spring for subsequent non-dragging taps/keys
+      setRotatorSpringEnabled(pieceId, true);
       clearHalo(pieceId);
       activeDragRef.current = null;
 
@@ -355,12 +397,11 @@ export function SigilStage({
         durationMs <= TAP_MAX_DURATION_MS;
 
       if (isQuickTap) {
-        // Restore exact pre-jitter position and execute crisp +45 deg clockwise rotation
         const gNode = groupNodesRef.current.get(pieceId);
         if (gNode) {
           gNode.setAttribute(
             'transform',
-            `translate(${drag.initialPiecePos.x} ${drag.initialPiecePos.y}) rotate(${drag.liveRotationDeg})`
+            `translate(${drag.initialPiecePos.x} ${drag.initialPiecePos.y})`
           );
         }
         onRotatePiece(pieceId, 1);
@@ -373,7 +414,7 @@ export function SigilStage({
         drag.maxTravelPx > TAP_MAX_TRAVEL_PX
       );
     },
-    [clearHalo, onCommitDrop, onRotatePiece]
+    [clearHalo, onCommitDrop, onRotatePiece, setRotatorSpringEnabled]
   );
 
   const handlePiecePointerUp = useCallback(
@@ -408,7 +449,7 @@ export function SigilStage({
         );
         flushDragDomTransform(activeDragRef.current);
       }
-      onRotatePiece(targetOrPieceId(pieceId), direction);
+      onRotatePiece(pieceId, direction);
     },
     [flushDragDomTransform, isComplete, onRotatePiece]
   );
@@ -423,71 +464,139 @@ export function SigilStage({
     [isComplete, onRotatePiece]
   );
 
+  const completionBorderClass = isComplete
+    ? isPerfect
+      ? 'border-jade/50'
+      : 'border-brass/50'
+    : 'border-white/10';
+
+  const ignitionAccentStroke = isPerfect
+    ? 'var(--color-jade-bright)'
+    : 'var(--color-brass-bright)';
+
+  const ignitionPrimaryStroke = isPerfect
+    ? 'var(--color-jade)'
+    : 'var(--color-brass)';
+
   return (
-    <div className="relative flex items-center justify-center w-full max-w-[500px] aspect-square">
+    <div className="relative flex items-center justify-center w-full max-w-[496px] aspect-square">
       <svg
         ref={svgRef}
         viewBox={`0 0 ${STAGE_VIEWBOX_SIZE} ${STAGE_VIEWBOX_SIZE}`}
-        className={`w-full h-full rounded-3xl bg-obsidian-900/85 border border-white/10 shadow-[0_24px_70px_rgba(0,0,0,0.65)] select-none ${
-          isComplete ? 'animate-complete-ignite border-rune-gold/45' : ''
-        }`}
+        className={`w-full h-full rounded-[28px] bg-basalt-900 border transition-colors duration-500 shadow-[0_24px_64px_rgba(0,0,0,0.72),inset_0_1px_0_rgba(255,255,255,0.06)] select-none ${completionBorderClass}`}
         style={{ touchAction: 'none' }}
         onContextMenu={(e) => e.preventDefault()}
       >
         <defs>
-          <radialGradient id="sanctum-glow" cx="50%" cy="50%" r="50%">
+          <radialGradient id="sanctum-well" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#07080c" stopOpacity="0.82" />
+            <stop offset="76%" stopColor="#0c0f16" stopOpacity="0.45" />
+            <stop offset="100%" stopColor="#0e1118" stopOpacity="0" />
+          </radialGradient>
+
+          <radialGradient id="sanctum-bloom" cx="50%" cy="50%" r="50%">
             <stop
               offset="0%"
-              stopColor="var(--color-rune-gold)"
-              stopOpacity={isComplete ? '0.18' : '0.06'}
+              stopColor={ignitionPrimaryStroke}
+              stopOpacity={isComplete ? '0.18' : '0.04'}
             />
             <stop
-              offset="70%"
-              stopColor="var(--color-obsidian-900)"
-              stopOpacity="0.02"
+              offset="72%"
+              stopColor={ignitionPrimaryStroke}
+              stopOpacity="0.01"
             />
             <stop offset="100%" stopColor="transparent" stopOpacity="0" />
           </radialGradient>
         </defs>
 
-        {/* Ambient Sanctum Altar Geometry (strictly non-interactive) */}
+        {/* LAYER 0: Carved Basalt Astrolabe Altar (Strictly non-interactive, lightweight pure vectors) */}
         <g pointerEvents="none">
+          {/* Outer tray guide ring */}
           <circle
             cx={SANCTUM_CENTER}
             cy={SANCTUM_CENTER}
-            r={SANCTUM_RADIUS + 34}
-            fill="url(#sanctum-glow)"
+            r={236}
+            fill="none"
+            stroke="rgba(255,255,255,0.03)"
+            strokeWidth={1}
           />
+
+          {/* sunken sanctum basin */}
+          <circle
+            cx={SANCTUM_CENTER}
+            cy={SANCTUM_CENTER}
+            r={SANCTUM_RADIUS + 20}
+            fill="url(#sanctum-well)"
+          />
+          <circle
+            cx={SANCTUM_CENTER}
+            cy={SANCTUM_CENTER}
+            r={SANCTUM_RADIUS + 36}
+            fill="url(#sanctum-bloom)"
+          />
+
+          {/* Engraved Sanctum Bezel Rings */}
           <circle
             cx={SANCTUM_CENTER}
             cy={SANCTUM_CENTER}
             r={SANCTUM_RADIUS}
             fill="none"
-            stroke="rgba(255,255,255,0.08)"
-            strokeWidth={1.2}
+            stroke={
+              isComplete
+                ? isPerfect
+                  ? 'rgba(107, 196, 166, 0.35)'
+                  : 'rgba(229, 184, 105, 0.35)'
+                : 'rgba(255, 255, 255, 0.09)'
+            }
+            strokeWidth={1.25}
           />
           <circle
             cx={SANCTUM_CENTER}
             cy={SANCTUM_CENTER}
-            r={SANCTUM_RADIUS + 8}
+            r={SANCTUM_RADIUS + 14}
             fill="none"
-            stroke="rgba(230, 184, 106, 0.12)"
+            stroke="rgba(255, 255, 255, 0.045)"
             strokeWidth={1}
-            strokeDasharray="3 9"
           />
 
-          {/* Faint Unified Stone-Etched Target Silhouette (no cut seams shown!) */}
+          {/* 24 Astrolabe Degree Ticks */}
+          {BEZEL_TICKS.map((tick) => (
+            <line
+              key={tick.angleDeg}
+              x1={tick.p1.x}
+              y1={tick.p1.y}
+              x2={tick.p2.x}
+              y2={tick.p2.y}
+              stroke={
+                tick.isCardinal
+                  ? 'rgba(229, 184, 105, 0.36)'
+                  : 'rgba(255, 255, 255, 0.10)'
+              }
+              strokeWidth={tick.isCardinal ? 1.5 : 1}
+              strokeLinecap="round"
+            />
+          ))}
+
+          {/* Recessed Stone-Carved Target Silhouette (Two-tone inset groove, zero cut seams) */}
           <path
             d={puzzle.unifiedSilhouettePathD}
             fill="none"
-            stroke="rgba(243, 241, 234, 0.13)"
-            strokeWidth={4.2}
+            stroke="rgba(3, 4, 7, 0.92)"
+            strokeWidth={7.2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path
+            d={puzzle.unifiedSilhouettePathD}
+            fill="none"
+            stroke="rgba(244, 240, 230, 0.14)"
+            strokeWidth={3.8}
             strokeLinecap="round"
             strokeLinejoin="round"
           />
         </g>
 
-        {/* LAYER 1: Locked Pieces (Strictly non-interactive, sits inside stone groove) */}
+        {/* LAYER 1: Inlaid Locked Pieces */}
         <g pointerEvents="none">
           {lockedStates.map((st) => {
             const def = pieceMap.get(st.id);
@@ -498,13 +607,40 @@ export function SigilStage({
                 definition={def}
                 state={st}
                 isPuzzleComplete={isComplete}
+                isPerfect={isPerfect}
               />
             );
           })}
         </g>
 
-        {/* Snap Lock Ripple Feedback */}
-        {lastSnapEvent && (
+        {/* LAYER 2: Controlled One-Shot Completion Ignition (Runs strictly when ignitionPhase === 'igniting') */}
+        {ignitionPhase === 'igniting' && (
+          <g pointerEvents="none">
+            <circle
+              cx={SANCTUM_CENTER}
+              cy={SANCTUM_CENTER}
+              r={SANCTUM_RADIUS + 6}
+              fill="none"
+              stroke={ignitionPrimaryStroke}
+              strokeWidth={2.2}
+              className="animate-ignition-shockwave"
+            />
+            <path
+              d={puzzle.unifiedSilhouettePathD}
+              pathLength={1}
+              fill="none"
+              stroke={ignitionAccentStroke}
+              strokeWidth={5.2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeDasharray="0.38 1.2"
+              className="animate-sheen-sweep"
+            />
+          </g>
+        )}
+
+        {/* Individual Piece Snap Ripple */}
+        {lastSnapEvent && ignitionPhase === 'dormant' && (
           <g
             key={lastSnapEvent.seq}
             transform={`translate(${lastSnapEvent.position.x} ${lastSnapEvent.position.y})`}
@@ -515,14 +651,14 @@ export function SigilStage({
               cy={0}
               r={20}
               fill="none"
-              stroke="var(--color-rune-glow)"
-              strokeWidth={2}
+              stroke="var(--color-brass-bright)"
+              strokeWidth={1.8}
               className="animate-snap-burst"
             />
           </g>
         )}
 
-        {/* LAYER 2: Unlocked Interactive Pieces */}
+        {/* LAYER 3: Unlocked Interactive Pieces */}
         <g>
           {unlockedStates.map((st) => {
             const def = pieceMap.get(st.id);
@@ -534,8 +670,8 @@ export function SigilStage({
                 state={st}
                 isSelected={selectedPieceId === st.id}
                 showOnboardingHint={hintPieceId === st.id}
-                isPuzzleComplete={isComplete}
                 registerGroupRef={registerGroupRef}
+                registerRotatorRef={registerRotatorRef}
                 registerHaloRef={registerHaloRef}
                 onPiecePointerDown={handlePiecePointerDown}
                 onPiecePointerMove={handlePiecePointerMove}
@@ -550,8 +686,4 @@ export function SigilStage({
       </svg>
     </div>
   );
-}
-
-function targetOrPieceId(pieceId: string): string {
-  return pieceId;
 }

@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { LiveTimer } from './components/LiveTimer';
 import { formatDurationMs } from './components/timerUtils';
 import { SigilStage } from './components/SigilStage';
+import { SoundToggleButton } from './components/SoundToggleButton';
 import { PROTOTYPE_SIGILS } from './engine/prototypeSigils';
 import { usePuzzleEngine } from './hooks/usePuzzleEngine';
 import { useSession } from './hooks/useSession';
@@ -29,27 +30,49 @@ export const App = () => {
   };
 
   return (
-    <main className="relative flex flex-col items-center justify-between w-full h-screen bg-obsidian-950 text-ivory px-4 py-3 sm:py-5 overflow-hidden select-none">
-      {/* Uncluttered Top Telemetry Bar */}
-      <header className="w-full max-w-[500px] flex items-center justify-between text-xs tracking-[0.18em] uppercase text-stone-muted">
-        <div className="flex items-center gap-2.5">
-          <span className="text-ivory font-medium">{activePuzzle.name}</span>
-          <span className="text-white/20">•</span>
-          <span>
-            {completion.lockedCount}/{completion.totalCount}
+    <main className="relative flex flex-col items-center justify-between w-full h-screen bg-basalt-950 text-alabaster px-4 py-3 sm:py-5 overflow-hidden select-none">
+      {/* Uncluttered Top Sanctuary HUD */}
+      <header className="w-full max-w-[496px] flex items-center justify-between gap-2">
+        <div className="flex flex-col">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-mono tracking-[0.18em] uppercase text-brass">
+              #{String(session?.edition ?? 1).padStart(3, '0')}
+            </span>
+            <span className="text-stone-400">·</span>
+            <h1
+              className="text-sm sm:text-base font-semibold tracking-[0.14em] uppercase text-alabaster"
+              style={{ fontFamily: 'var(--font-display)' }}
+            >
+              {activePuzzle.name}
+            </h1>
+          </div>
+          <span className="text-[11px] text-stone-300 tracking-wide">
+            {completion.isComplete
+              ? activePuzzle.subtitle
+              : `${completion.lockedCount} of ${completion.totalCount} inlaid`}
           </span>
         </div>
 
-        <div className="flex items-center gap-4">
-          <span>Moves {engine.moves}</span>
-          <LiveTimer
-            startedAtMs={engine.startedAtMs}
-            completedAtMs={engine.completedAtMs}
-          />
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 px-3 py-1.5 rounded-full bg-basalt-900 border border-white/8 text-xs text-stone-300">
+            <span className="font-mono tabular-nums">
+              <span className="text-stone-400 mr-1">MV</span>
+              <span className="text-alabaster">{engine.moves}</span>
+            </span>
+            <span className="text-white/15">|</span>
+            <span className="text-alabaster">
+              <LiveTimer
+                startedAtMs={engine.startedAtMs}
+                completedAtMs={engine.completedAtMs}
+              />
+            </span>
+          </div>
+
+          <SoundToggleButton />
         </div>
       </header>
 
-      {/* Focused Center SVG Stage */}
+      {/* Focused Basalt Astrolabe Stage */}
       <SigilStage
         puzzle={engine.puzzle}
         pieceMap={engine.pieceMap}
@@ -57,6 +80,8 @@ export const App = () => {
         selectedPieceId={engine.selectedPieceId}
         hasInteracted={engine.hasInteracted}
         isComplete={completion.isComplete}
+        isPerfect={completion.isPerfect}
+        ignitionPhase={engine.ignitionPhase}
         lastSnapEvent={engine.lastSnapEvent}
         onSelectPiece={engine.selectAndBringToFront}
         onCommitDrop={engine.commitPieceDrop}
@@ -64,50 +89,62 @@ export const App = () => {
         previewCanSnap={engine.previewCanSnap}
       />
 
-      {/* Minimal Bottom Context / Completion Bar */}
-      <footer className="w-full max-w-[500px] min-h-[44px] flex items-center justify-between text-xs text-stone-muted">
+      {/* Minimal Bottom Ritual Bar */}
+      <footer className="w-full max-w-[496px] min-h-[48px] flex items-center justify-between text-xs">
         {completion.isComplete ? (
-          <div className="w-full flex items-center justify-between gap-3 px-4 py-2.5 rounded-full bg-obsidian-900 border border-rune-gold/35">
-            <div className="flex items-center gap-2.5">
-              <span className="text-rune-gold font-semibold tracking-wider uppercase">
+          <div
+            className={`animate-reveal-rise w-full flex items-center justify-between gap-3 px-4 py-2.5 rounded-2xl bg-basalt-900 border ${
+              completion.isPerfect ? 'border-jade/45' : 'border-brass/45'
+            }`}
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-2.5">
+              <span
+                className={`font-semibold tracking-[0.14em] uppercase ${
+                  completion.isPerfect ? 'text-jade' : 'text-brass'
+                }`}
+              >
                 {completion.isPerfect
                   ? 'Perfect Reconstruction'
-                  : 'Sigil Reconstructed'}
+                  : 'Sigil Ignited'}
               </span>
-              <span className="text-white/25">•</span>
-              <span className="text-ivory/85">
-                {engine.moves} moves in {formatDurationMs(completion.elapsedMs)}
+              <span className="hidden sm:inline text-stone-400">·</span>
+              <span className="text-stone-300 font-mono text-[11px]">
+                {engine.moves} moves · {formatDurationMs(completion.elapsedMs)}
               </span>
             </div>
 
             <button
               type="button"
               onClick={handleNextPrototype}
-              className="px-3.5 py-1 rounded-full bg-rune-gold text-obsidian-950 font-semibold tracking-wider uppercase cursor-pointer hover:bg-rune-glow transition-colors"
+              className={`px-4 py-1.5 rounded-full text-basalt-950 font-bold tracking-[0.14em] uppercase cursor-pointer transition-colors ${
+                completion.isPerfect
+                  ? 'bg-jade hover:bg-jade-bright'
+                  : 'bg-brass hover:bg-brass-bright'
+              }`}
             >
               Next Sigil
             </button>
           </div>
         ) : (
           <>
-            <span className="tracking-wide text-stone-muted/80">
-              Drag to place · Tap piece to rotate 45°
+            <span className="text-stone-300 tracking-wide">
+              Drag to inlay · Tap piece to rotate 45°
             </span>
 
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={handleReset}
-                className="px-2.5 py-1 rounded-md border border-white/10 hover:border-white/25 text-stone-muted hover:text-ivory transition-colors cursor-pointer"
+                className="px-3 py-1.5 rounded-lg bg-basalt-900 border border-white/10 hover:border-brass/40 text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
               >
                 Scatter
               </button>
               <button
                 type="button"
                 onClick={handleNextPrototype}
-                className="px-2.5 py-1 rounded-md border border-white/10 hover:border-white/25 text-stone-muted hover:text-ivory transition-colors cursor-pointer"
+                className="px-3 py-1.5 rounded-lg bg-basalt-900 border border-white/10 hover:border-brass/40 text-stone-300 hover:text-alabaster font-mono transition-colors cursor-pointer"
               >
-                Sigil {sigilIndex + 1}/{PROTOTYPE_SIGILS.length}
+                {sigilIndex + 1}/{PROTOTYPE_SIGILS.length}
               </button>
             </div>
           </>

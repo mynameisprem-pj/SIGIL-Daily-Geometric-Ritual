@@ -1,4 +1,4 @@
-import { useLayoutEffect, useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useEffect, useMemo, useRef, useState } from 'react';
 import { STAGE_PADDING_PX, STAGE_VIEWBOX_SIZE } from '../../shared/constants';
 import type {
   CompiledSigilPuzzle,
@@ -7,6 +7,7 @@ import type {
   Point2D,
   PuzzleCompletionStats,
 } from '../../shared/types';
+import { soundEngine } from '../audio/soundEngine';
 import { createScatteredPieceStates, normalizeAngleDeg } from '../engine/geometry';
 import {
   computeCompletionStats,
@@ -14,6 +15,8 @@ import {
   getOccupiedSlotIds,
   rotateAngleByStep,
 } from '../engine/solver';
+
+export type IgnitionPhase = 'dormant' | 'igniting' | 'settled';
 
 export interface SnapFeedbackEvent {
   readonly pieceId: string;
@@ -30,6 +33,7 @@ export interface UsePuzzleEngineResult {
   readonly moves: number;
   readonly startedAtMs: number | null;
   readonly completedAtMs: number | null;
+  readonly ignitionPhase: IgnitionPhase;
   readonly lastSnapEvent: SnapFeedbackEvent | null;
   readonly completion: PuzzleCompletionStats;
   selectAndBringToFront: (pieceId: string) => void;
@@ -70,35 +74,52 @@ export function usePuzzleEngine(
     return map;
   }, [puzzle]);
 
+  const currentPuzzleKey = `${seedKey}:${puzzle.id}`;
+
   const [states, setStates] = useState<PieceRuntimeState[]>(() =>
-    createScatteredPieceStates(puzzle, `${seedKey}:${puzzle.id}`)
+    createScatteredPieceStates(puzzle, currentPuzzleKey)
   );
   const [selectedPieceId, setSelectedPieceId] = useState<string | null>(null);
   const [hasInteracted, setHasInteracted] = useState(false);
   const [moves, setMoves] = useState(0);
   const [startedAtMs, setStartedAtMs] = useState<number | null>(null);
   const [completedAtMs, setCompletedAtMs] = useState<number | null>(null);
+  const [ignitionPhase, setIgnitionPhase] = useState<IgnitionPhase>('dormant');
   const [lastSnapEvent, setLastSnapEvent] = useState<SnapFeedbackEvent | null>(
     null
   );
 
   const snapSeqRef = useRef(0);
-  // Track the puzzle identity and reset state when it changes.
-const currentPuzzleKey = `${seedKey}:${puzzle.id}`;
+  const prevPuzzleKeyRef = useRef(currentPuzzleKey);
+  const ignitedInstanceKeyRef = useRef<string | null>(null);
+  const movesRef = useRef(moves);
 
-const [previousPuzzleKey, setPreviousPuzzleKey] =
-  useState(currentPuzzleKey);
+  // Reset puzzle state before the browser paints when the puzzle changes.
+useLayoutEffect(() => {
+  if (prevPuzzleKeyRef.current === currentPuzzleKey) return;
 
-if (previousPuzzleKey !== currentPuzzleKey) {
-  setPreviousPuzzleKey(currentPuzzleKey);
+  prevPuzzleKeyRef.current = currentPuzzleKey;
+  ignitedInstanceKeyRef.current = null;
+  movesRef.current = 0;
+
   setStates(createScatteredPieceStates(puzzle, currentPuzzleKey));
   setSelectedPieceId(null);
   setHasInteracted(false);
   setMoves(0);
   setStartedAtMs(null);
   setCompletedAtMs(null);
+  setIgnitionPhase('dormant');
   setLastSnapEvent(null);
-}
+}, [currentPuzzleKey, puzzle]);
+
+  // Controlled one-way transition from 'igniting' -> 'settled' after the 1050ms sweep finishes
+  useEffect(() => {
+    if (ignitionPhase !== 'igniting') return;
+    const timerId = window.setTimeout(() => {
+      setIgnitionPhase((phase) => (phase === 'igniting' ? 'settled' : phase));
+    }, 1080);
+    return () => window.clearTimeout(timerId);
+  }, [ignitionPhase]);
 
   const ensureTimerStarted = useCallback(() => {
     setHasInteracted(true);
@@ -109,17 +130,15 @@ if (previousPuzzleKey !== currentPuzzleKey) {
     (pieceId: string) => {
       setStates((prev) => {
         const target = prev.find((s) => s.id === pieceId);
-        // Strict locked immunity: locked pieces can NEVER be selected or reordered
         if (!target || target.locked) return prev;
 
         ensureTimerStarted();
+        soundEngine.playPickup();
         setSelectedPieceId(pieceId);
 
-        // Move selected unlocked piece to end of array so it renders on top
         const idx = prev.indexOf(target);
         if (idx === prev.length - 1) return prev;
-        const next = prev.slice(0, idx).concat(prev.slice(idx + 1), target);
-        return next;
+        return prev.slice(0, idx).concat(prev.slice(idx + 1), target);
       });
     },
     [ensureTimerStarted]
@@ -128,6 +147,8 @@ if (previousPuzzleKey !== currentPuzzleKey) {
   const applyPlacementOrRotation = useCallback(
     (
       pieceId: string,
+      interactionKind: 'drop' | 'rotate',
+      rotateDirection: 1 | -1,
       computeCandidate: (current: PieceRuntimeState) => {
         position: Point2D;
         rotationDeg: number;
@@ -139,7 +160,6 @@ if (previousPuzzleKey !== currentPuzzleKey) {
 
       setStates((prev) => {
         const current = prev.find((s) => s.id === pieceId);
-        // Strict locked immunity
         if (!current || current.locked) return prev;
 
         const { position, rotationDeg, countsAsMove } =
@@ -147,9 +167,14 @@ if (previousPuzzleKey !== currentPuzzleKey) {
         const clampedPos = clampToStage(position);
         const normalizedRot = normalizeAngleDeg(rotationDeg);
 
+        const nextMoves = countsAsMove
+          ? movesRef.current + 1
+          : movesRef.current;
+
         if (countsAsMove) {
+          movesRef.current = nextMoves;
           ensureTimerStarted();
-          setMoves((m) => m + 1);
+          setMoves(nextMoves);
         }
 
         const occupied = getOccupiedSlotIds(prev, pieceId);
@@ -183,6 +208,9 @@ if (previousPuzzleKey !== currentPuzzleKey) {
         );
 
         if (updatedPiece.locked) {
+          const lockedNow = nextStates.filter((s) => s.locked).length;
+          const allLocked = lockedNow === nextStates.length;
+
           snapSeqRef.current += 1;
           setLastSnapEvent({
             pieceId,
@@ -191,10 +219,31 @@ if (previousPuzzleKey !== currentPuzzleKey) {
           });
           setSelectedPieceId((sel) => (sel === pieceId ? null : sel));
 
-          const allLocked = nextStates.every((s) => s.locked);
-          if (allLocked) {
-            setCompletedAtMs((done) => done ?? performance.now());
+          // Always play ascending pentatonic lock chime for pieces 1..N-1
+          if (!allLocked) {
+            soundEngine.playSnapLock(lockedNow);
           }
+
+          // Strictly ONE-SHOT puzzle completion ignition guard
+          if (
+            allLocked &&
+            ignitedInstanceKeyRef.current !== prevPuzzleKeyRef.current
+          ) {
+            ignitedInstanceKeyRef.current = prevPuzzleKeyRef.current;
+            const finishTs = performance.now();
+            setCompletedAtMs((done) => done ?? finishTs);
+            setIgnitionPhase('igniting');
+
+            const finalStats = computeCompletionStats(
+              nextStates,
+              nextMoves,
+              0
+            );
+            soundEngine.playSnapLock(lockedNow);
+            soundEngine.playIgnition(finalStats.isPerfect);
+          }
+        } else if (interactionKind === 'rotate') {
+          soundEngine.playRotate(rotateDirection);
         }
 
         return nextStates;
@@ -205,7 +254,7 @@ if (previousPuzzleKey !== currentPuzzleKey) {
 
   const commitPieceDrop = useCallback(
     (pieceId: string, newPosition: Point2D, didMoveMeaningfully: boolean) => {
-      applyPlacementOrRotation(pieceId, (current) => ({
+      applyPlacementOrRotation(pieceId, 'drop', 1, (current) => ({
         position: newPosition,
         rotationDeg: current.rotationDeg,
         countsAsMove: didMoveMeaningfully,
@@ -216,7 +265,7 @@ if (previousPuzzleKey !== currentPuzzleKey) {
 
   const rotatePiece = useCallback(
     (pieceId: string, direction: 1 | -1 = 1) => {
-      applyPlacementOrRotation(pieceId, (current) => ({
+      applyPlacementOrRotation(pieceId, 'rotate', direction, (current) => ({
         position: current.position,
         rotationDeg: rotateAngleByStep(current.rotationDeg, direction),
         countsAsMove: true,
@@ -225,7 +274,6 @@ if (previousPuzzleKey !== currentPuzzleKey) {
     [applyPlacementOrRotation]
   );
 
-  // Fast read-only check used during pointermove to show magnetic alignment halo
   const statesRef = useRef(states);
   useLayoutEffect(() => {
   statesRef.current = states;
@@ -257,12 +305,16 @@ if (previousPuzzleKey !== currentPuzzleKey) {
   const resetPuzzle = useCallback(
     (customSeedSuffix = '') => {
       const fullSeed = `${seedKey}:${puzzle.id}${customSeedSuffix}`;
+      prevPuzzleKeyRef.current = fullSeed;
+      ignitedInstanceKeyRef.current = null;
+      movesRef.current = 0;
       setStates(createScatteredPieceStates(puzzle, fullSeed));
       setSelectedPieceId(null);
       setHasInteracted(false);
       setMoves(0);
       setStartedAtMs(null);
       setCompletedAtMs(null);
+      setIgnitionPhase('dormant');
       setLastSnapEvent(null);
     },
     [puzzle, seedKey]
@@ -287,6 +339,7 @@ if (previousPuzzleKey !== currentPuzzleKey) {
     moves,
     startedAtMs,
     completedAtMs,
+    ignitionPhase,
     lastSnapEvent,
     completion,
     selectAndBringToFront,

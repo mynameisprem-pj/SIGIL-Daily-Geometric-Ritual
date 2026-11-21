@@ -1,17 +1,21 @@
 import * as React from 'react';
-import { memo } from 'react';
+import { memo, useRef } from 'react';
 import type {
   NormalizedPieceDefinition,
   PieceRuntimeState,
 } from '../../shared/types';
+import { shortestSignedAngleDeltaDeg } from '../engine/geometry';
 
 interface SigilPieceProps {
   readonly definition: NormalizedPieceDefinition;
   readonly state: PieceRuntimeState;
   readonly isSelected: boolean;
   readonly showOnboardingHint: boolean;
-  readonly isPuzzleComplete: boolean;
   readonly registerGroupRef?: (
+    pieceId: string,
+    node: SVGGElement | null
+  ) => void;
+  readonly registerRotatorRef?: (
     pieceId: string,
     node: SVGGElement | null
   ) => void;
@@ -45,40 +49,62 @@ interface SigilPieceProps {
   ) => void;
 }
 
+/**
+ * Locked pieces sit inlaid inside the carved stone groove.
+ * Pale Jade is reserved strictly for Perfect Reconstruction; otherwise Molten Brass.
+ */
 export const LockedSigilPiece = memo(function LockedSigilPiece({
   definition,
   state,
   isPuzzleComplete,
+  isPerfect,
 }: {
   readonly definition: NormalizedPieceDefinition;
   readonly state: PieceRuntimeState;
   readonly isPuzzleComplete: boolean;
+  readonly isPerfect: boolean;
 }) {
   const transform = `translate(${state.position.x} ${state.position.y}) rotate(${state.rotationDeg})`;
 
+  const primaryMetal =
+    isPuzzleComplete && isPerfect
+      ? 'var(--color-jade)'
+      : 'var(--color-brass)';
+  const coreHighlight =
+    isPuzzleComplete && isPerfect
+      ? 'var(--color-jade-bright)'
+      : 'var(--color-brass-bright)';
+
   return (
     <g transform={transform} pointerEvents="none">
-      {/* Subtle warm golden under-glow once locked */}
+      {/* Soft inlaid metallic aura (lightweight stroke opacity, zero blur filter) */}
       <path
         d={definition.localPathD}
         fill="none"
-        stroke="var(--color-rune-gold)"
-        strokeWidth={isPuzzleComplete ? 9 : 7}
+        stroke={primaryMetal}
+        strokeWidth={isPuzzleComplete ? 9.5 : 7.5}
         strokeLinecap="round"
         strokeLinejoin="round"
-        opacity={isPuzzleComplete ? 0.34 : 0.2}
+        opacity={isPuzzleComplete ? 0.28 : 0.16}
       />
+      {/* Primary inlaid metal body */}
       <path
         d={definition.localPathD}
         fill="none"
-        stroke={
-          isPuzzleComplete
-            ? 'var(--color-rune-glow)'
-            : 'var(--color-rune-gold)'
-        }
-        strokeWidth={3.6}
+        stroke={primaryMetal}
+        strokeWidth={3.8}
         strokeLinecap="round"
         strokeLinejoin="round"
+      />
+      {/* Chiseled specular ridge highlight */}
+      <path
+        d={definition.localPathD}
+        fill="none"
+        stroke={coreHighlight}
+        strokeWidth={1.3}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        opacity={isPuzzleComplete ? 0.9 : 0.55}
       />
     </g>
   );
@@ -90,6 +116,7 @@ export const InteractiveSigilPiece = memo(function InteractiveSigilPiece({
   isSelected,
   showOnboardingHint,
   registerGroupRef,
+  registerRotatorRef,
   registerHaloRef,
   onPiecePointerDown,
   onPiecePointerMove,
@@ -98,12 +125,21 @@ export const InteractiveSigilPiece = memo(function InteractiveSigilPiece({
   onPieceWheel,
   onPieceContextMenu,
 }: SigilPieceProps) {
-  const transform = `translate(${state.position.x} ${state.position.y}) rotate(${state.rotationDeg})`;
+  // Unwrap normalized [0, 360) state angle into a continuous cumulative angle so
+  // CSS 140ms rotation transitions always travel the shortest 45-degree arc (e.g. 315 -> 360).
+  const cumulativeRotRef = useRef<number>(state.rotationDeg);
+  const delta = shortestSignedAngleDeltaDeg(
+    cumulativeRotRef.current,
+    state.rotationDeg
+  );
+  if (Math.abs(delta) > 1e-4) {
+    cumulativeRotRef.current += delta;
+  }
 
   return (
     <g
       ref={(node) => registerGroupRef?.(state.id, node)}
-      transform={transform}
+      transform={`translate(${state.position.x} ${state.position.y})`}
       className="cursor-grab active:cursor-grabbing"
       style={{ touchAction: 'none', willChange: 'transform' }}
       onPointerDown={(e) => onPiecePointerDown?.(e, state.id)}
@@ -114,30 +150,29 @@ export const InteractiveSigilPiece = memo(function InteractiveSigilPiece({
       onWheel={(e) => onPieceWheel?.(e, state.id)}
       onContextMenu={(e) => onPieceContextMenu?.(e, state.id)}
     >
-      {/* Contextual Sub-3-Second Onboarding Pulse (disappears on first touch) */}
+      {/* Contextual Sub-3-Second Onboarding Cue (centered at (0,0), non-rotating) */}
       {showOnboardingHint && (
         <g pointerEvents="none" className="animate-hint-pulse">
           <circle
             cx={0}
             cy={0}
-            r={24}
+            r={25}
             fill="none"
-            stroke="var(--color-rune-gold)"
+            stroke="var(--color-brass)"
             strokeWidth={1.25}
-            strokeDasharray="4 4"
+            strokeDasharray="3.5 4.5"
           />
-          {/* Subtle curved rotation cue arrow around true centroid */}
           <path
-            d="M 16 -18 A 24 24 0 0 1 24 2"
+            d="M 16 -19 A 25 25 0 0 1 25 2"
             fill="none"
-            stroke="var(--color-rune-glow)"
+            stroke="var(--color-brass-bright)"
             strokeWidth={1.6}
             strokeLinecap="round"
           />
           <path
-            d="M 20 -1 L 24 3 L 27 -2"
+            d="M 21 -1 L 25 3 L 28 -2"
             fill="none"
-            stroke="var(--color-rune-glow)"
+            stroke="var(--color-brass-bright)"
             strokeWidth={1.6}
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -145,66 +180,98 @@ export const InteractiveSigilPiece = memo(function InteractiveSigilPiece({
         </g>
       )}
 
-      {/* Magnetic snap-ready halo (toggled at 60fps via DOM ref during drag) */}
+      {/* Magnetic snap-alignment halo (toggled via DOM ref at 60 FPS during drag) */}
       <circle
         ref={(node) => registerHaloRef?.(state.id, node)}
         cx={0}
         cy={0}
         r={22}
-        fill="rgba(230, 184, 106, 0.14)"
-        stroke="var(--color-rune-glow)"
-        strokeWidth={1.5}
+        fill="rgba(229, 184, 105, 0.13)"
+        stroke="var(--color-brass-bright)"
+        strokeWidth={1.4}
         opacity={0}
         pointerEvents="none"
       />
 
-      {/* True centroid pivot micro-pip when selected */}
+      {/* Inner Rotator Group: Smooth 140ms spring around true geometric centroid (0,0) when NOT dragging */}
+      <g
+        ref={(node) => registerRotatorRef?.(state.id, node)}
+        className="piece-rotator-spring"
+        style={{ transform: `rotate(${cumulativeRotRef.current}deg)` }}
+      >
+        {/* Wide 28px invisible hit stroke for effortless touch/mouse acquisition */}
+        <path
+          d={definition.localPathD}
+          fill="none"
+          stroke="transparent"
+          strokeWidth={28}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          pointerEvents="stroke"
+        />
+
+        {/* Soft basalt contact shadow beneath lifted piece */}
+        <path
+          d={definition.localPathD}
+          fill="none"
+          stroke="rgba(0, 0, 0, 0.55)"
+          strokeWidth={5.6}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          pointerEvents="none"
+        />
+
+        {/* Brass selection aura */}
+        {isSelected && (
+          <path
+            d={definition.localPathD}
+            fill="none"
+            stroke="var(--color-brass)"
+            strokeWidth={8.2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            opacity={0.2}
+            pointerEvents="none"
+          />
+        )}
+
+        {/* Carved Alabaster body stroke */}
+        <path
+          d={definition.localPathD}
+          fill="none"
+          stroke={
+            isSelected ? 'var(--color-brass-bright)' : 'var(--color-alabaster)'
+          }
+          strokeWidth={3.6}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          pointerEvents="none"
+        />
+
+        {/* Fine inner lapidary specular highlight */}
+        <path
+          d={definition.localPathD}
+          fill="none"
+          stroke="var(--color-alabaster-core)"
+          strokeWidth={1.1}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          opacity={0.7}
+          pointerEvents="none"
+        />
+      </g>
+
+      {/* True geometric centroid micro-pip when selected */}
       {isSelected && (
         <circle
           cx={0}
           cy={0}
-          r={2.5}
-          fill="var(--color-rune-gold)"
-          opacity={0.75}
+          r={2.3}
+          fill="var(--color-brass)"
+          opacity={0.85}
           pointerEvents="none"
         />
       )}
-
-      {/* Wide invisible hit target for effortless finger & mouse acquisition */}
-      <path
-        d={definition.localPathD}
-        fill="none"
-        stroke="transparent"
-        strokeWidth={28}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        pointerEvents="stroke"
-      />
-
-      {/* Subtle selection aura */}
-      {isSelected && (
-        <path
-          d={definition.localPathD}
-          fill="none"
-          stroke="var(--color-rune-gold)"
-          strokeWidth={8}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          opacity={0.18}
-          pointerEvents="none"
-        />
-      )}
-
-      {/* Crisp visible geometric stroke */}
-      <path
-        d={definition.localPathD}
-        fill="none"
-        stroke={isSelected ? 'var(--color-rune-glow)' : 'var(--color-ivory)'}
-        strokeWidth={3.4}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        pointerEvents="none"
-      />
     </g>
   );
 });
