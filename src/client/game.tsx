@@ -16,11 +16,7 @@ import type { LeaderboardRow, PuzzleCompletionStats } from '../shared/types';
 import { LiveTimer } from './components/LiveTimer';
 import { ResultCard } from './components/ResultCard';
 import type { NextActionConfig } from './components/resultTypes';
-import { SanctumDrawer } from './components/SanctumDrawer';
-import type {
-  CompletedSealRecord,
-  SanctumTab,
-} from './components/sanctumTypes';
+import type { CompletedSealRecord } from './components/sanctumTypes';
 import { SigilStage } from './components/SigilStage';
 import { SoundToggleButton } from './components/SoundToggleButton';
 import { useDailyPack } from './hooks/useDailyPack';
@@ -38,11 +34,11 @@ import {
   submitPuzzleCompletion,
 } from './utils/apiClient';
 
-type CardView = 'play' | 'how-to-play' | 'archive' | 'leaderboard';
+type CardView = 'play' | 'how-to-play' | 'archive' | 'leaderboard' | 'vault';
 
 function computeSpectrumPercent(entry: LeaderboardRow): number {
   const clamped = Math.max(550, Math.min(1250, entry.score));
-  return Math.round(8 + ((clamped - 550) / 700) * 84);
+  return Math.round(10 + ((clamped - 550) / 700) * 82);
 }
 
 export const App = () => {
@@ -53,8 +49,6 @@ export const App = () => {
   const [activeView, setActiveView] = useState<CardView>('play');
   const [showUnsolvedOnly, setShowUnsolvedOnly] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerTab, setDrawerTab] = useState<SanctumTab>('vault');
   const [localRecords, setLocalRecords] = useState(
     () => new Map<string, CompletedSealRecord>()
   );
@@ -82,7 +76,6 @@ export const App = () => {
     void ensureActiveJourney(activeEntry.mode, activeEntry.edition);
   }, [activeEntry.edition, activeEntry.mode]);
 
-  // Close dropdown menu when clicking outside
   useEffect(() => {
     if (!menuOpen) return;
     const onPointerDownOutside = (ev: PointerEvent) => {
@@ -126,6 +119,16 @@ export const App = () => {
 
     return merged;
   }, [localRecords, serverRecords]);
+
+  const jadeVaultList = useMemo(
+    () => [...completedRecords.values()].filter((r) => r.isPerfect),
+    [completedRecords]
+  );
+
+  const allSealsList = useMemo(
+    () => [...completedRecords.values()],
+    [completedRecords]
+  );
 
   const handlePuzzleComplete = useCallback(
     (stats: PuzzleCompletionStats) => {
@@ -264,6 +267,8 @@ export const App = () => {
     return sessionStreak;
   }, [completedRecords, pack.main.seed, sessionDailyCompleted, sessionStreak]);
 
+  const bestStreak = Math.max(session?.bestStreak ?? 0, effectiveStreak);
+
   const handleScatterCurrent = useCallback(() => {
     setReshuffleCount((c) => c + 1);
     setMenuOpen(false);
@@ -277,8 +282,7 @@ export const App = () => {
 
   const handleOpenJadeVault = useCallback(() => {
     setMenuOpen(false);
-    setDrawerTab('vault');
-    setDrawerOpen(true);
+    setActiveView('vault');
   }, []);
 
   const handleRotateActivePieceButton = useCallback(() => {
@@ -359,7 +363,6 @@ export const App = () => {
     session?.communityPulse?.totalSolves ?? session?.communitySolves ?? 0;
   const jadeRate = session?.communityPulse?.jadeRatePercent ?? 0;
 
-  // Build unified Archive & Challenges list (like HotAndCold's "Play the archive")
   const archiveCards = useMemo(() => {
     const items = [
       {
@@ -442,8 +445,12 @@ export const App = () => {
         : activeMode === 'bonus-2'
           ? `Bonus II · #${activeEntry.edition}`
           : activeMode === 'zen'
-            ? `Zen Sanctuary`
-            : `Practice Archive`;
+            ? `Zen Mode`
+            : `Archive`;
+
+  const liveProgressPct = Math.round(
+    (completion.lockedCount / Math.max(1, completion.totalCount)) * 100
+  );
 
   return (
     <main
@@ -453,7 +460,7 @@ export const App = () => {
       }}
       className="relative flex flex-col items-center justify-between w-full h-dvh min-h-[500px] bg-[#06080F] text-[#F8FAFC] px-4 py-3.5 sm:px-6 sm:py-4 overflow-hidden select-none"
     >
-      {/* Subtle radial cool-slate glow behind card (HotAndCold atmosphere) */}
+      {/* Subtle radial cool-slate glow */}
       <div
         className="pointer-events-none absolute inset-0"
         style={{
@@ -481,32 +488,33 @@ export const App = () => {
           </h2>
 
           <p className="text-sm text-slate-300 leading-relaxed mb-5">
-            Reconstruct today’s shattered sacred rune by rotating and placing each
-            stone stroke into the central astrolabe. Fewer moves earn higher rank.
+            Reconstruct today’s shattered geometric seal by rotating and placing
+            each stone stroke into the central astrolabe. Fewer moves earn higher
+            subreddit rank.
           </p>
 
-          <p className="text-sm font-medium text-slate-200 mb-2.5">
+          <p className="text-sm font-semibold text-slate-200 mb-2.5">
             Controls & Mastery:
           </p>
 
           <ul className="space-y-2.5 text-sm text-slate-300 list-disc pl-5 mb-7">
             <li>
               <strong className="text-white">Tap a piece</strong> (or scroll your
-              mouse wheel / tap <strong className="text-white">Rotate</strong>) to
-              turn it by <strong className="text-white">45°</strong>.
+              mouse wheel / tap <strong className="text-white">Rotate 45°</strong>)
+              to turn it into alignment.
             </li>
             <li>
-              <strong className="text-white">Drag into groove</strong> → snaps into
+              <strong className="text-white">Drag into groove</strong> → locks in
               place with a musical chime when aligned.
             </li>
             <li>
-              <strong className="text-emerald-300">Pale Jade Seal</strong> → solve
+              <strong className="text-emerald-300">Jade Seal</strong> → solve
               within <strong className="text-white">+2 moves of par</strong> for
               perfect mastery.
             </li>
             <li>
-              <strong className="text-amber-300">Bonus Challenges</strong> → unlock
-              2 harder seals every day after finishing the main challenge.
+              <strong className="text-sky-300">Bonus Challenges</strong> → unlock 2
+              harder seals every day after finishing the main challenge.
             </li>
           </ul>
 
@@ -711,15 +719,126 @@ export const App = () => {
         </section>
       )}
 
-      {/* ==================== MAIN PLAY VIEW (CLEAN HOTANDCOLD POLISH) ==================== */}
+      {/* ==================== FULL-CARD VIEW 4: JADE SEAL VAULT (MODERNIZED!) ==================== */}
+      {activeView === 'vault' && (
+        <section className="z-20 relative flex flex-col w-full max-w-[540px] h-full px-2 sm:px-4 py-2 animate-reveal-rise">
+          <button
+            type="button"
+            onClick={() => setActiveView('play')}
+            aria-label="Close Jade Vault"
+            className="absolute top-1.5 right-1.5 inline-flex items-center justify-center w-8 h-8 rounded-lg border border-white/25 hover:border-white/60 bg-white/5 hover:bg-white/10 text-white transition-colors cursor-pointer"
+          >
+            <svg viewBox="0 0 20 20" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M5 5l10 10M15 5L5 15" />
+            </svg>
+          </button>
+
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
+            Jade Seal Vault
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-400 mt-0.5 mb-3">
+            Permanent crests earned by solving challenges within +2 moves of par.
+          </p>
+
+          {/* Clean Status Pills Row */}
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300">
+              ◈ {jadeVaultList.length} Jade {jadeVaultList.length === 1 ? 'Seal' : 'Seals'}
+            </span>
+            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-sky-500/20 text-sky-300">
+              {allSealsList.length} Total Solved
+            </span>
+            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300">
+              Streak {effectiveStreak}d · Best {bestStreak}d
+            </span>
+          </div>
+
+          {/* Crisp 2-Column Seal Showcase Grid */}
+          <div className="flex-1 overflow-y-auto pr-1 pb-2">
+            {allSealsList.length === 0 ? (
+              <div className="rounded-2xl bg-[#10141F] border border-white/8 p-8 text-center">
+                <p className="text-sm font-semibold text-white mb-1">
+                  Your vault is waiting for its first seal
+                </p>
+                <p className="text-xs text-slate-400">
+                  Complete today’s challenge within +2 moves of par to forge your
+                  first glowing Jade crest.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                {allSealsList.map((seal) => (
+                  <div
+                    key={seal.seed}
+                    className={`flex flex-col items-center justify-between p-4 rounded-2xl border transition-colors ${
+                      seal.isPerfect
+                        ? 'bg-[#0B1917] border-emerald-500/30'
+                        : 'bg-[#10141F] border-white/8'
+                    }`}
+                  >
+                    <div className="w-16 h-16 flex items-center justify-center mb-2">
+                      <svg viewBox="115 115 290 290" className="w-full h-full">
+                        <circle
+                          cx="260"
+                          cy="260"
+                          r="128"
+                          fill="none"
+                          stroke="rgba(255,255,255,0.06)"
+                          strokeWidth="1.5"
+                        />
+                        <path
+                          d={seal.silhouettePathD}
+                          fill="none"
+                          stroke={seal.isPerfect ? '#6BC4A6' : '#E5B869'}
+                          strokeWidth="5.4"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </div>
+
+                    <span className="text-sm font-bold text-white text-center truncate w-full">
+                      {seal.name}
+                    </span>
+
+                    <div className="flex items-center gap-1.5 mt-1.5">
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                          seal.isPerfect
+                            ? 'bg-emerald-500/20 text-emerald-300'
+                            : 'bg-amber-500/20 text-amber-300'
+                        }`}
+                      >
+                        {seal.isPerfect ? 'Jade' : 'Brass'}
+                      </span>
+                      <span className="text-xs font-semibold text-slate-300">
+                        {seal.bestScore} pts
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setActiveView('play')}
+            className="mt-2 w-full py-2.5 rounded-full bg-white hover:bg-slate-100 text-slate-950 text-xs font-bold uppercase tracking-wide cursor-pointer"
+          >
+            Back to Game
+          </button>
+        </section>
+      )}
+
+      {/* ==================== MAIN PLAY VIEW ==================== */}
       {activeView === 'play' && (
         <>
           {/* Top Bar: Clean Brand + 4-Icon Action Cluster + Dropdown Menu */}
           <header className="z-20 w-full max-w-[490px] flex items-center justify-between gap-2">
             <div className="flex items-center gap-2.5 min-w-0">
-              {/* Crisp Sigil Emblem */}
               <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-[#111624] border border-white/10 shrink-0">
-                <span className="text-amber-300 text-sm">◈</span>
+                <span className="text-emerald-300 text-sm">◈</span>
               </div>
 
               <div className="min-w-0">
@@ -727,7 +846,7 @@ export const App = () => {
                   <span className="text-sm sm:text-base font-bold tracking-tight text-white truncate">
                     {activeEntry.puzzle.name}
                   </span>
-                  <span className="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold bg-white/8 text-slate-300">
+                  <span className="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold bg-sky-500/15 text-sky-300">
                     {headerSubtitle}
                   </span>
                 </div>
@@ -750,7 +869,7 @@ export const App = () => {
               </div>
             </div>
 
-            {/* Exact 4-Button Cluster: (i) | Sound | Archive | Menu (≡) */}
+            {/* 4-Button Cluster: (i) | Sound | Archive | Menu (≡) */}
             <div ref={menuRef} className="relative flex items-center gap-1.5 shrink-0">
               <button
                 type="button"
@@ -796,7 +915,7 @@ export const App = () => {
                 </svg>
               </button>
 
-              {/* Floating Glass Dropdown Menu (Just like HotAndCold!) */}
+              {/* Floating Glass Dropdown Menu */}
               {menuOpen && (
                 <div className="absolute right-0 top-11 z-40 w-48 rounded-xl bg-[#111624]/98 border border-white/15 py-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.75)] backdrop-blur-md">
                   <button
@@ -869,14 +988,14 @@ export const App = () => {
             previewCanSnap={engine.previewCanSnap}
           />
 
-          {/* Clean Bottom Bar + Full-Character Snoovatar Progress Line */}
+          {/* Upgraded Footer: Controls + Cool Glass Mastery Spectrum Dock */}
           <footer className="z-10 w-full max-w-[490px] flex flex-col gap-2">
             <div className="flex items-center justify-between gap-2">
               {!completion.isComplete ? (
                 <button
                   type="button"
                   onClick={handleRotateActivePieceButton}
-                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#161D2E] hover:bg-[#1F2940] active:scale-95 border border-white/12 text-xs font-semibold text-white transition-all cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#141B2D] hover:bg-[#1E2942] active:scale-95 border border-white/12 text-xs font-semibold text-white transition-all cursor-pointer"
                 >
                   <span>↻</span>
                   <span>Rotate 45°</span>
@@ -896,20 +1015,47 @@ export const App = () => {
               <button
                 type="button"
                 onClick={() => setActiveView('how-to-play')}
-                className="px-3.5 py-1.5 rounded-full bg-[#161D2E] hover:bg-[#1F2940] border border-white/10 text-xs font-semibold text-slate-200 transition-colors cursor-pointer shrink-0"
+                className="px-3.5 py-1.5 rounded-full bg-[#141B2D] hover:bg-[#1E2942] border border-white/10 text-xs font-semibold text-slate-200 transition-colors cursor-pointer shrink-0"
               >
                 How to Play
               </button>
             </div>
 
-            {/* Full-Body Reddit Snoovatar Spectrum Line (HotAndCold Style!) */}
-            <div className="relative flex items-center w-full h-7 px-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-teal-400 shrink-0" />
-              <div className="relative flex-1 h-[2px] bg-gradient-to-r from-teal-400 via-amber-300 to-rose-400">
-                {entries.slice(0, 8).map((entry) => (
+            {/* Cool Glass Mastery Spectrum Capsule (Live Alignment + Community Snoovatars!) */}
+            <button
+              type="button"
+              onClick={handleOpenLeaderboardView}
+              title="Click to view Challenge Standings"
+              className="group relative flex items-center gap-2.5 w-full px-3 py-2 rounded-2xl bg-[#0D121F]/90 hover:bg-[#12192B] border border-white/8 hover:border-white/18 transition-colors cursor-pointer"
+            >
+              {/* Left Progress Counter Pill */}
+              <span className="text-[11px] font-bold text-sky-300 tabular-nums shrink-0">
+                {liveProgressPct}%
+              </span>
+
+              {/* Illuminated Track */}
+              <div className="relative flex-1 h-2 rounded-full bg-white/8 overflow-visible">
+                {/* Active Gradient Fill */}
+                <div
+                  style={{
+                    width: `${Math.max(entries.length > 0 ? 100 : liveProgressPct, liveProgressPct)}%`,
+                    opacity: entries.length > 0 && liveProgressPct === 0 ? 0.45 : 1,
+                  }}
+                  className="h-full rounded-full bg-gradient-to-r from-sky-400 via-amber-300 to-emerald-400 transition-all duration-300"
+                />
+
+                {/* Live Glowing Spark for Current Player's Stroke Progress */}
+                {!completion.isComplete && liveProgressPct > 0 && (
+                  <span
+                    style={{ left: `${liveProgressPct}%` }}
+                    className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.95)] border-2 border-sky-400 transition-all duration-300"
+                  />
+                )}
+
+                {/* Community Snoovatars Standing Along the Track */}
+                {entries.slice(0, 7).map((entry) => (
                   <div
                     key={entry.username}
-                    title={`u/${entry.username} · ${entry.score} pts`}
                     style={{ left: `${computeSpectrumPercent(entry)}%` }}
                     className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2"
                   >
@@ -917,20 +1063,27 @@ export const App = () => {
                       <img
                         src={entry.snoovatarUrl}
                         alt={`u/${entry.username}`}
-                        className="w-7 h-7 object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,0.95)]"
+                        className="w-7 h-7 object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,0.95)] transition-transform group-hover:scale-110"
                       />
                     ) : (
-                      <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#161D2E] border border-white/25 text-[10px] font-bold text-white shadow">
+                      <span
+                        className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold text-slate-950 shadow-md ${
+                          entry.isPerfect ? 'bg-emerald-300' : 'bg-amber-300'
+                        }`}
+                      >
                         {entry.username.slice(0, 1).toUpperCase()}
                       </span>
                     )}
                   </div>
                 ))}
               </div>
-              <svg viewBox="0 0 12 12" className="w-3 h-3 text-rose-400 -ml-1 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 2l5 4-5 4" />
-              </svg>
-            </div>
+
+              {/* Right Jade Mastery Badge */}
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-400/25 text-[10px] font-bold text-emerald-300 shrink-0">
+                <span>◈</span>
+                <span>Jade</span>
+              </span>
+            </button>
           </footer>
         </>
       )}
@@ -956,29 +1109,6 @@ export const App = () => {
           onOpenSanctum={handleOpenJadeVault}
         />
       )}
-
-      {/* Jade Seal Collection Drawer */}
-      <SanctumDrawer
-        open={drawerOpen}
-        activeTab={drawerTab}
-        onTabChange={setDrawerTab}
-        currentUsername={session?.username ?? 'wanderer'}
-        streak={effectiveStreak}
-        bestStreak={session?.bestStreak ?? effectiveStreak}
-        pack={pack}
-        leaderboard={session?.leaderboard ?? null}
-        activeMode={activeMode}
-        activePracticeKey={activePracticeKey}
-        practiceCatalog={practiceCatalog}
-        dailyUnlocked={dailyUnlocked}
-        completedRecords={completedRecords}
-        onRefreshLeaderboard={handleRefreshLeaderboard}
-        onClose={() => setDrawerOpen(false)}
-        onSelectMode={selectMode}
-        onSelectPractice={selectPracticeItem}
-        onEnterZen={advanceZen}
-        onScatterCurrent={handleScatterCurrent}
-      />
     </main>
   );
 };

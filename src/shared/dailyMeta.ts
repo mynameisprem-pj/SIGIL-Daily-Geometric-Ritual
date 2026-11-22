@@ -62,6 +62,13 @@ function nextInt(state: { s: number }, min: number, max: number): number {
   return min + Math.floor(nextMulberry(state) * (max - min + 1));
 }
 
+function formatChallengePostTitle(
+  editionTag: string,
+  sigilName: string
+): string {
+  return `Sigil ${editionTag} — Can you solve today's ${sigilName} challenge?`;
+}
+
 export function resolveDailyPostSummary(dateKey: string): {
   edition: number;
   editionTag: string;
@@ -81,7 +88,7 @@ export function resolveDailyPostSummary(dateKey: string): {
       editionTag,
       pieceCount,
       sigilName,
-      postTitle: `Sigil ${editionTag} — ${sigilName} (${pieceCount} Strokes)`,
+      postTitle: formatChallengePostTitle(editionTag, sigilName),
     };
   }
 
@@ -104,6 +111,6 @@ export function resolveDailyPostSummary(dateKey: string): {
     editionTag,
     pieceCount,
     sigilName,
-    postTitle: `Sigil ${editionTag} — ${sigilName} (${pieceCount} Strokes)`,
+    postTitle: formatChallengePostTitle(editionTag, sigilName),
   };
 }
