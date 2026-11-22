@@ -64,6 +64,7 @@ interface ActiveDragSession {
   identifier: number;
   startSvgPoint: Point2D;
   initialPiecePos: Point2D;
+  wasAlreadySelected: boolean;
   grabOffset: Point2D;
   livePosition: Point2D;
   liveRotationDeg: number;
@@ -179,6 +180,7 @@ export function SigilStage({
     pieceMap,
     isComplete,
     mobileInlinePreview,
+    selectedPieceId,
     onSelectPiece,
     onCommitDrop,
     onRotatePiece,
@@ -190,6 +192,7 @@ export function SigilStage({
       pieceMap,
       isComplete,
       mobileInlinePreview,
+      selectedPieceId,
       onSelectPiece,
       onCommitDrop,
       onRotatePiece,
@@ -340,6 +343,7 @@ export function SigilStage({
         identifier: touch.identifier,
         startSvgPoint: svgPt,
         initialPiecePos: pieceState.position,
+        wasAlreadySelected: props.selectedPieceId === hitPieceId,
         grabOffset: {
           x: pieceState.position.x - svgPt.x,
           y: pieceState.position.y - svgPt.y,
@@ -457,7 +461,12 @@ export function SigilStage({
             `translate(${drag.initialPiecePos.x} ${drag.initialPiecePos.y})`
           );
         }
-        props.onRotatePiece(pieceId, 1);
+        const tapDir: 1 | -1 =
+          drag.wasAlreadySelected &&
+          drag.startSvgPoint.x - drag.initialPiecePos.x < -6
+            ? -1
+            : 1;
+        props.onRotatePiece(pieceId, tapDir);
         return;
       }
 
@@ -720,6 +729,7 @@ export function SigilStage({
         identifier: e.pointerId,
         startSvgPoint: svgPt,
         initialPiecePos: pieceState.position,
+        wasAlreadySelected: selectedPieceId === hitPieceId,
         grabOffset: {
           x: pieceState.position.x - svgPt.x,
           y: pieceState.position.y - svgPt.y,
@@ -741,6 +751,7 @@ export function SigilStage({
       onRotatePiece,
       onSelectPiece,
       pieceMap,
+      selectedPieceId,
       states,
     ]
   );
@@ -828,7 +839,12 @@ export function SigilStage({
             `translate(${drag.initialPiecePos.x} ${drag.initialPiecePos.y})`
           );
         }
-        onRotatePiece(pieceId, 1);
+        const tapDir: 1 | -1 =
+          drag.wasAlreadySelected &&
+          drag.startSvgPoint.x - drag.initialPiecePos.x < -6
+            ? -1
+            : 1;
+        onRotatePiece(pieceId, tapDir);
         return;
       }
 

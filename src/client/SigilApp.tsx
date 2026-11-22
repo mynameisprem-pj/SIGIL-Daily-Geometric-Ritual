@@ -307,8 +307,8 @@ export function SigilApp({ isExpanded }: { readonly isExpanded: boolean }) {
     [activeEntry.edition]
   );
 
-  const handleRotateActivePieceButton = useCallback(
-    (e: React.MouseEvent<HTMLButtonElement>) => {
+  const handleRotateByDirection = useCallback(
+    (direction: 1 | -1, e: React.MouseEvent<HTMLButtonElement>) => {
       if (mobileInlinePreview) {
         handleRequestExpand(e);
         return;
@@ -322,7 +322,7 @@ export function SigilApp({ isExpanded }: { readonly isExpanded: boolean }) {
       );
       const targetId = activeUnlocked ? activeUnlocked.id : unlocked[0]!.id;
       engine.selectAndBringToFront(targetId);
-      engine.rotatePiece(targetId, 1);
+      engine.rotatePiece(targetId, direction);
     },
     [completion.isComplete, engine, handleRequestExpand, mobileInlinePreview]
   );
@@ -517,9 +517,9 @@ export function SigilApp({ isExpanded }: { readonly isExpanded: boolean }) {
 
           <ul className="space-y-2.5 text-sm text-slate-300 list-disc pl-5 mb-7">
             <li>
-              <strong className="text-white">Tap a piece</strong> (or scroll your
-              mouse wheel / tap <strong className="text-white">Rotate 45°</strong>)
-              to turn it into alignment.
+              <strong className="text-white">Rotate Left or Right:</strong> Use the{' '}
+              <strong className="text-white">↺ 45° ↻</strong> rocker, scroll your mouse
+              wheel, or tap the left/right side of a selected piece.
             </li>
             <li>
               <strong className="text-white">Drag into groove</strong> → locks in
@@ -1020,20 +1020,43 @@ export function SigilApp({ isExpanded }: { readonly isExpanded: boolean }) {
           <footer className="z-10 w-full max-w-[490px] flex flex-col gap-2">
             <div className="flex items-center justify-between gap-2">
               {!completion.isComplete ? (
-                <button
-                  type="button"
-                  onClick={handleRotateActivePieceButton}
-                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#141B2D] hover:bg-[#1E2942] active:scale-95 border border-white/12 text-xs font-semibold text-white transition-all cursor-pointer"
-                >
-                  {mobileInlinePreview ? (
+                mobileInlinePreview ? (
+                  <button
+                    type="button"
+                    onClick={handleRequestExpand}
+                    className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#141B2D] hover:bg-[#1E2942] active:scale-95 border border-white/12 text-xs font-semibold text-white transition-all cursor-pointer"
+                  >
                     <span>▶ Play Fullscreen</span>
-                  ) : (
-                    <>
-                      <span>↻</span>
-                      <span>Rotate 45°</span>
-                    </>
-                  )}
-                </button>
+                  </button>
+                ) : (
+                  <div
+                    role="group"
+                    aria-label="Rotate piece 45 degrees"
+                    className="inline-flex items-center rounded-full bg-[#141B2D] border border-white/12 overflow-hidden"
+                  >
+                    <button
+                      type="button"
+                      onClick={(e) => handleRotateByDirection(-1, e)}
+                      aria-label="Rotate counter-clockwise 45 degrees"
+                      title="Rotate Left 45° (Q / Left-side tap)"
+                      className="inline-flex items-center justify-center px-3 py-1.5 hover:bg-[#1E2942] active:bg-white/15 text-sm font-semibold text-white transition-colors cursor-pointer"
+                    >
+                      ↺
+                    </button>
+                    <span className="px-1.5 text-[11px] font-semibold text-slate-400 select-none border-x border-white/8">
+                      45°
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => handleRotateByDirection(1, e)}
+                      aria-label="Rotate clockwise 45 degrees"
+                      title="Rotate Right 45° (R / Right-side tap)"
+                      className="inline-flex items-center justify-center px-3 py-1.5 hover:bg-[#1E2942] active:bg-white/15 text-sm font-semibold text-white transition-colors cursor-pointer"
+                    >
+                      ↻
+                    </button>
+                  </div>
+                )
               ) : (
                 <span className="text-xs font-semibold text-emerald-300">
                   Sigil Reconstructed!
