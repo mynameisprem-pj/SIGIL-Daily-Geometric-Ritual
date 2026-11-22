@@ -41,6 +41,7 @@ const Keys = {
   dailyAggregates: (dateKey: string) => `sigil:daily:${dateKey}:agg`,
   postSharedByUser: (postId: string, username: string) =>
     `sigil:post:${postId}:shared:${username}`,
+  snoovatarCache: (username: string) => `sigil:snoovatar:${username}`,
 } as const;
 
 function parseProfileHash(
@@ -191,6 +192,21 @@ async function trySyncUserPrestigeFlair(
   }
 }
 
+async function resolveSnoovatarUrl(username: string): Promise<string | null> {
+  const cacheKey = Keys.snoovatarCache(username);
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached !== undefined) {
+      return cached === 'NONE' ? null : cached;
+    }
+    const url = await reddit.getSnoovatarUrl(username);
+    await redis.set(cacheKey, url ?? 'NONE');
+    return url ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getDailyLeaderboardSnapshot(
   dateKey: string,
   username: string | null
@@ -231,57 +247,69 @@ export async function getDailyLeaderboardSnapshot(
   }
 
   const metaLookup = new Map<string, LeaderboardMemberMeta>();
-  if (metaFieldsToFetch.size > 0) {
-    const fetchedMetas = await Promise.all(
-      [...metaFieldsToFetch].map(async (member) => {
-        const raw = await redis.hGet(metaKey, member);
-        return [member, safeParseJson<LeaderboardMemberMeta>(raw)] as const;
-      })
-    );
-    for (const [member, meta] of fetchedMetas) {
-      if (meta) metaLookup.set(member, meta);
-    }
-  }
+const avatarLookup = new Map<string, string | null>();
 
-  const entries: LeaderboardRow[] = topMembersDesc.map((item, idx) => {
-    const meta = metaLookup.get(item.member);
-    return {
-      rank: idx + 1,
-      username: item.member,
-      score: meta?.score ?? decodeLeaderboardTotalScore(item.score),
-      moves: meta?.moves ?? 0,
-      elapsedMs: meta?.elapsedMs ?? 0,
-      isPerfect: meta?.isPerfect ?? false,
-    };
-  });
-
-  const { personalRank, percentile } = computeRankAndPercentile(
-    userAscRank,
-    totalPlayers
+if (metaFieldsToFetch.size > 0) {
+  const fetched = await Promise.all(
+    [...metaFieldsToFetch].map(async (member) => {
+      const [raw, avatarUrl] = await Promise.all([
+        redis.hGet(metaKey, member),
+        resolveSnoovatarUrl(member),
+      ]);
+      return [
+        member,
+        safeParseJson<LeaderboardMemberMeta>(raw),
+        avatarUrl,
+      ] as const;
+    })
   );
-
-  let personalEntry: LeaderboardRow | null = null;
-  if (username && personalRank !== null && userCompositeScore !== undefined) {
-    const myMeta = metaLookup.get(username);
-    personalEntry = {
-      rank: personalRank,
-      username,
-      score: myMeta?.score ?? decodeLeaderboardTotalScore(userCompositeScore),
-      moves: myMeta?.moves ?? 0,
-      elapsedMs: myMeta?.elapsedMs ?? 0,
-      isPerfect: myMeta?.isPerfect ?? false,
-    };
+  for (const [member, meta, avatarUrl] of fetched) {
+    if (meta) metaLookup.set(member, meta);
+    avatarLookup.set(member, avatarUrl);
   }
+}
 
+const entries: LeaderboardRow[] = topMembersDesc.map((item, idx) => {
+  const meta = metaLookup.get(item.member);
   return {
-    dateKey,
-    edition,
-    totalPlayers,
-    entries,
-    personalRank,
-    percentile,
-    personalEntry,
+    rank: idx + 1,
+    username: item.member,
+    score: meta?.score ?? decodeLeaderboardTotalScore(item.score),
+    moves: meta?.moves ?? 0,
+    elapsedMs: meta?.elapsedMs ?? 0,
+    isPerfect: meta?.isPerfect ?? false,
+    snoovatarUrl: avatarLookup.get(item.member) ?? null,
   };
+});
+
+const { personalRank, percentile } = computeRankAndPercentile(
+  userAscRank,
+  totalPlayers
+);
+
+let personalEntry: LeaderboardRow | null = null;
+if (username && personalRank !== null && userCompositeScore !== undefined) {
+  const myMeta = metaLookup.get(username);
+  personalEntry = {
+    rank: personalRank,
+    username,
+    score: myMeta?.score ?? decodeLeaderboardTotalScore(userCompositeScore),
+    moves: myMeta?.moves ?? 0,
+    elapsedMs: myMeta?.elapsedMs ?? 0,
+    isPerfect: myMeta?.isPerfect ?? false,
+    snoovatarUrl: avatarLookup.get(username) ?? null,
+  };
+}
+
+return {
+  dateKey,
+  edition,
+  totalPlayers,
+  entries,
+  personalRank,
+  percentile,
+  personalEntry,
+};
 }
 
 export async function recordPuzzleCompletion(
@@ -310,8 +338,9 @@ export async function recordPuzzleCompletion(
     completedAtIso: nowIso,
   };
 
-  const effectiveDailyDateKey =
-    submission.mode === 'daily' ? serverTodayDateKey : submission.dateKey;
+  const effectiveDailyDateKey = submission.dateKey;
+  const countsTowardLiveStreak =
+    submission.mode === 'daily' && submission.dateKey === serverTodayDateKey;
 
   if (!username) {
     if (submission.mode === 'daily') {
@@ -326,8 +355,8 @@ export async function recordPuzzleCompletion(
       ]);
     }
     const [communityPulse, leaderboard] = await Promise.all([
-      getDailyCommunityPulse(serverTodayDateKey),
-      getDailyLeaderboardSnapshot(serverTodayDateKey, null),
+      getDailyCommunityPulse(effectiveDailyDateKey),
+      getDailyLeaderboardSnapshot(effectiveDailyDateKey, null),
     ]);
 
     return {
@@ -361,7 +390,7 @@ export async function recordPuzzleCompletion(
 
   const { nextProfile } = evaluateDailyStreakUpdate(
     prevProfile,
-    submission.mode,
+    countsTowardLiveStreak ? 'daily' : 'practice',
     effectiveDailyDateKey,
     newlyEarnedPerfect
   );
@@ -412,8 +441,8 @@ export async function recordPuzzleCompletion(
   }
 
   const [communityPulse, leaderboard] = await Promise.all([
-    getDailyCommunityPulse(serverTodayDateKey),
-    getDailyLeaderboardSnapshot(serverTodayDateKey, username),
+    getDailyCommunityPulse(effectiveDailyDateKey),
+    getDailyLeaderboardSnapshot(effectiveDailyDateKey, username),
   ]);
 
   return {

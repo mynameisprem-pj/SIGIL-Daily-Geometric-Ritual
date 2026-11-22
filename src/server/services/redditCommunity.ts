@@ -1,11 +1,12 @@
 import { context, reddit, redis } from '@devvit/web/server';
-import { getTodayUtcDateKey } from '../../shared/constants';
+import { getEditionNumber, getTodayUtcDateKey } from '../../shared/constants';
 import { resolveDailyPostSummary } from '../../shared/dailyMeta';
 
 type RedditCommentOrPostId = `t1_${string}` | `t3_${string}`;
 
 const LEDGER_COMMENT_KEY = (postId: string) =>
   `sigil:post:${postId}:ledger_comment`;
+const POST_DATE_KEY = (postId: string) => `sigil:post:${postId}:dateKey`;
 const DAILY_PUBLISHED_KEY = (subreddit: string, dateKey: string) =>
   `sigil:post:published:${subreddit}:${dateKey}`;
 
@@ -21,10 +22,45 @@ function asCommentFullname(rawId: string): `t1_${string}` {
     : (`t1_${rawId}` as `t1_${string}`);
 }
 
+function dateKeyFromEditionNumber(targetEdition: number): string {
+  const todayKey = getTodayUtcDateKey();
+  const todayEdition = getEditionNumber(todayKey);
+  const todayUtcMs = Date.parse(`${todayKey}T00:00:00Z`);
+  const deltaDays = targetEdition - todayEdition;
+  return new Date(todayUtcMs + deltaDays * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+}
+
 /**
- * Ensures a single pinned "Daily Ritual Ledger" root comment exists on `postId`
- * so player score dispatches group cleanly as replies (per Reddit User Actions policy).
+ * Resolves the immutable UTC `dateKey` bound to a specific Reddit post so
+ * Edition #001 always serves #001 and Edition #002 always serves #002.
  */
+export async function resolvePostBoundDateKey(postId: string): Promise<string> {
+  const normalizedPostId = asPostFullname(postId);
+  const cached = await redis.get(POST_DATE_KEY(normalizedPostId));
+  if (cached && /^\d{4}-\d{2}-\d{2}$/.test(cached)) {
+    return cached;
+  }
+
+  try {
+    const post = await reddit.getPostById(normalizedPostId);
+    const match = post.title.match(/Sigil\s+#(\d+)/i);
+    if (match?.[1]) {
+      const parsedEdition = parseInt(match[1], 10);
+      if (Number.isInteger(parsedEdition) && parsedEdition >= 1) {
+        const inferredDateKey = dateKeyFromEditionNumber(parsedEdition);
+        await redis.set(POST_DATE_KEY(normalizedPostId), inferredDateKey);
+        return inferredDateKey;
+      }
+    }
+  } catch {
+    // Fallback to today's UTC date in local standalone/mock contexts
+  }
+
+  return getTodayUtcDateKey();
+}
+
 export async function ensurePostLedgerComment(
   postId: string,
   editionLabel?: string
@@ -51,7 +87,7 @@ export async function ensurePostLedgerComment(
     try {
       await rootComment.distinguish(true);
     } catch {
-      // Distinguish/sticky requires moderator permission; safe to continue if unavailable
+      // Safe fallback if mod distinguish is unavailable
     }
 
     await redis.set(LEDGER_COMMENT_KEY(normalizedPostId), rootComment.id);
@@ -61,9 +97,6 @@ export async function ensurePostLedgerComment(
   }
 }
 
-/**
- * Submits a spoiler-free Markdown result comment on behalf of the authenticated user.
- */
 export async function submitUserResultDispatchComment(
   postId: string,
   markdownText: string
@@ -79,10 +112,6 @@ export async function submitUserResultDispatchComment(
   return comment.id;
 }
 
-/**
- * Publishes Today's Calibrated Daily Sigil Custom Post with strict once-per-UTC-day idempotency
- * unless `force === true` (e.g., manual moderator menu click).
- */
 export async function publishDailySigilPost(options?: {
   force?: boolean;
 }): Promise<{
@@ -116,9 +145,18 @@ export async function publishDailySigilPost(options?: {
     subredditName,
     title: summary.postTitle,
     entry: 'default',
+    postData: {
+      edition: summary.edition,
+      dateKey,
+    },
   });
 
-  await redis.set(lockKey, post.id);
+  const normalizedPostId = asPostFullname(post.id);
+  await Promise.all([
+    redis.set(lockKey, post.id),
+    redis.set(POST_DATE_KEY(normalizedPostId), dateKey),
+  ]);
+
   await ensurePostLedgerComment(
     post.id,
     `SIGIL ${summary.editionTag} (${summary.sigilName})`

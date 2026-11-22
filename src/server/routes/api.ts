@@ -12,7 +12,10 @@ import type {
   ShareCommentResponse,
 } from '../../shared/types';
 import { validateCompletionSubmission } from '../services/progressionRules';
-import { submitUserResultDispatchComment } from '../services/redditCommunity';
+import {
+  resolvePostBoundDateKey,
+  submitUserResultDispatchComment,
+} from '../services/redditCommunity';
 import {
   getDailyCommunityPulse,
   getDailyLeaderboardSnapshot,
@@ -36,7 +39,7 @@ api.get('/session', async (c) => {
   }
 
   try {
-    const dateKey = getTodayUtcDateKey();
+    const dateKey = await resolvePostBoundDateKey(postId);
     const edition = getEditionNumber(dateKey);
     const username = (await reddit.getCurrentUsername()) ?? null;
 
@@ -176,7 +179,7 @@ api.post('/share-comment', async (c) => {
   }
 
   try {
-    const dateKey = getTodayUtcDateKey();
+    const dateKey = await resolvePostBoundDateKey(postId);
     const [profile, leaderboard] = await Promise.all([
       getUserProfile(username),
       getDailyLeaderboardSnapshot(dateKey, username),

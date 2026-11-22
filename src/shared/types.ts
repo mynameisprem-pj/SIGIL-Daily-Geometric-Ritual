@@ -167,6 +167,7 @@ export interface LeaderboardRow {
   readonly moves: number;
   readonly elapsedMs: number;
   readonly isPerfect: boolean;
+  readonly snoovatarUrl?: string | null;
 }
 
 export interface DailyLeaderboardSnapshot {
