@@ -1,9 +1,11 @@
 import './index.css';
 
+import { requestExpandedMode } from '@devvit/web/client';
+import * as React from 'react';
 import { StrictMode, useCallback, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { calculateSigilScore } from '../shared/scoring';
-import type { PuzzleCompletionStats } from '../shared/types';
+import type { LeaderboardRow, PuzzleCompletionStats } from '../shared/types';
 import { LiveTimer } from './components/LiveTimer';
 import { ResultCard } from './components/ResultCard';
 import type { NextActionConfig } from './components/resultTypes';
@@ -20,6 +22,7 @@ import { useSession } from './hooks/useSession';
 import {
   ensureActiveJourney,
   notifyAppReadyOnce,
+  trackCommunityInteraction,
   trackPuzzleCompletedJourney,
   trackStrokeLockedProgress,
 } from './telemetry/journeys';
@@ -28,6 +31,11 @@ import {
   submitPuzzleCompletion,
 } from './utils/apiClient';
 
+function computeSpectrumPercent(entry: LeaderboardRow): number {
+  const clamped = Math.max(550, Math.min(1250, entry.score));
+  return Math.round(10 + ((clamped - 550) / 700) * 82);
+}
+
 export const App = () => {
   const { session, updateSession } = useSession();
   const daily = useDailyPack(session?.dateKey, session?.username);
@@ -35,6 +43,7 @@ export const App = () => {
   const [reshuffleCount, setReshuffleCount] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerTab, setDrawerTab] = useState<SanctumTab>('today');
+  const [showHowToPlay, setShowHowToPlay] = useState(false);
   const [localRecords, setLocalRecords] = useState<
     Map<string, CompletedSealRecord>
   >(() => new Map());
@@ -50,13 +59,11 @@ export const App = () => {
     advanceZen,
   } = daily;
 
-  // Narrow session properties for React Compiler memoization preservation
   const serverRecords = session?.completedRecords;
   const sessionDateKey = session?.dateKey;
   const sessionDailyCompleted = session?.dailyCompleted ?? false;
   const sessionStreak = session?.streak ?? 0;
 
-  // Devvit Journeys: signal app-ready & start/reuse active journey when puzzle loads
   useEffect(() => {
     notifyAppReadyOnce();
     void ensureActiveJourney(activeEntry.mode, activeEntry.edition);
@@ -197,7 +204,6 @@ export const App = () => {
   );
   const { completion } = engine;
 
-  // Report Devvit Journey incremental progress whenever a new stroke locks in
   useEffect(() => {
     if (completion.lockedCount > 0 && !completion.isComplete) {
       trackStrokeLockedProgress(
@@ -247,6 +253,35 @@ export const App = () => {
     setDrawerTab('today');
     setDrawerOpen(true);
   }, []);
+
+  // Dedicated mobile-friendly Rotate button action (rotates selected piece, or picks first unlocked piece)
+  const handleRotateActivePieceButton = useCallback(() => {
+    if (completion.isComplete) return;
+    const unlocked = engine.states.filter((s) => !s.locked);
+    if (unlocked.length === 0) return;
+
+    const activeUnlocked = unlocked.find(
+      (s) => s.id === engine.selectedPieceId
+    );
+    const targetId = activeUnlocked ? activeUnlocked.id : unlocked[0]!.id;
+    engine.selectAndBringToFront(targetId);
+    engine.rotatePiece(targetId, 1);
+  }, [completion.isComplete, engine]);
+
+  const handleRequestExpand = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      trackCommunityInteraction(
+        'expand_fullscreen',
+        `ed_${activeEntry.edition}`
+      );
+      try {
+        requestExpandedMode(e.nativeEvent, 'game');
+      } catch {
+        // Already in expanded mode or standalone tab
+      }
+    },
+    [activeEntry.edition]
+  );
 
   const nextAction = useMemo<NextActionConfig>(() => {
     if (activeMode === 'daily') {
@@ -302,22 +337,101 @@ export const App = () => {
     engine.ignitionPhase === 'settled' &&
     scoreBreakdown !== null;
 
+  const entries = session?.leaderboard?.entries ?? [];
+  const solvesCount =
+    session?.communityPulse?.totalSolves ?? session?.communitySolves ?? 0;
+  const jadeRate = session?.communityPulse?.jadeRatePercent ?? 0;
+
   return (
-    <main className="relative flex flex-col items-center justify-between w-full h-dvh min-h-[480px] bg-basalt-950 text-alabaster px-4 py-3 sm:py-5 overflow-hidden select-none">
+    <main
+      style={{ touchAction: 'pan-y' }}
+      className="relative flex flex-col items-center justify-between w-full h-dvh min-h-[480px] bg-basalt-950 text-alabaster px-3.5 py-2.5 sm:px-5 sm:py-4 overflow-hidden select-none"
+    >
       <div className="sr-only" aria-live="polite">
         {completion.isComplete
           ? `${activeEntry.puzzle.name} reconstructed in ${engine.moves} moves.`
           : `${completion.lockedCount} of ${completion.totalCount} strokes inlaid.`}
       </div>
-      {/* Whisper-Quiet Top Sanctuary Bar */}
-      <header className="w-full max-w-[496px] flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2.5 min-w-0">
+
+      {/* r/HotAndCold-Style Unified Top Bar: Sigil Identity (Left) + Glass Action Cluster (Right) */}
+      <header className="w-full max-w-[468px] flex items-center justify-between gap-2">
+        <div className="flex flex-col min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-mono font-semibold tracking-[0.16em] uppercase text-brass shrink-0">
+              {modeBadgeLabel}
+            </span>
+            <span className="text-stone-400">·</span>
+            <h1
+              className="text-sm sm:text-base font-semibold tracking-[0.1em] uppercase text-alabaster truncate"
+              style={{ fontFamily: 'var(--font-display)' }}
+            >
+              {activeEntry.puzzle.name}
+            </h1>
+          </div>
+
+          <div className="flex items-center gap-2 text-[11px] text-stone-300 font-mono">
+            <span>
+              {completion.lockedCount}/{completion.totalCount} inlaid
+            </span>
+            <span className="text-white/15">·</span>
+            <span>MV {engine.moves}</span>
+            {activeMode !== 'zen' && (
+              <>
+                <span className="text-white/15">·</span>
+                <LiveTimer
+                  startedAtMs={engine.startedAtMs}
+                  completedAtMs={engine.completedAtMs}
+                />
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Clean Top-Right Circular Icon Cluster */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => setShowHowToPlay((v) => !v)}
+            aria-label="How to Play"
+            title="How to Play"
+            className={`inline-flex items-center justify-center w-8 h-8 rounded-full border transition-colors cursor-pointer ${
+              showHowToPlay
+                ? 'bg-brass text-basalt-950 border-brass'
+                : 'bg-basalt-850/90 border-white/10 hover:border-brass/45 text-stone-300 hover:text-alabaster'
+            }`}
+          >
+            <span className="text-xs font-serif font-bold italic">i</span>
+          </button>
+
+          <SoundToggleButton />
+
+          <button
+            type="button"
+            onClick={handleOpenLeaderboard}
+            aria-label="Leaderboard"
+            title="Leaderboard"
+            className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-basalt-850/90 border border-white/10 hover:border-brass/45 text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
+          >
+            <svg
+              viewBox="0 0 20 20"
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M6 16h8M10 12v4M5.5 4h9v3.5a4.5 4.5 0 0 1-9 0V4Z" />
+              <path d="M5.5 5.5H3.5v1.5a2.5 2.5 0 0 0 2 2.45M14.5 5.5h2v1.5a2.5 2.5 0 0 1-2 2.45" />
+            </svg>
+          </button>
+
           <button
             type="button"
             onClick={handleOpenSanctum}
-            aria-label="Open Sanctum Codex & Modes"
-            title="Sanctum Codex"
-            className="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full bg-basalt-850/90 border border-white/10 hover:border-brass/45 text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
+            aria-label="Modes & Vault"
+            title="Modes & Vault"
+            className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-basalt-850/90 border border-white/10 hover:border-brass/45 text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
           >
             <svg
               viewBox="0 0 20 20"
@@ -331,48 +445,25 @@ export const App = () => {
             </svg>
           </button>
 
-          <div className="flex flex-col min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-mono tracking-[0.18em] uppercase text-brass shrink-0">
-                {modeBadgeLabel}
-              </span>
-              <span className="text-stone-400">·</span>
-              <h1
-                className="text-sm sm:text-base font-semibold tracking-[0.12em] uppercase text-alabaster truncate"
-                style={{ fontFamily: 'var(--font-display)' }}
-              >
-                {activeEntry.puzzle.name}
-              </h1>
-            </div>
-            <span className="text-[11px] text-stone-300 tracking-wide truncate">
-              {completion.isComplete
-                ? activeEntry.puzzle.subtitle
-                : `${completion.lockedCount} of ${completion.totalCount} strokes inlaid`}
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2.5 shrink-0">
-          <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-basalt-900 border border-white/8 text-xs text-stone-300">
-            <span className="font-mono tabular-nums">
-              <span className="text-stone-400 mr-1">MV</span>
-              <span className="text-alabaster">{engine.moves}</span>
-            </span>
-
-            {activeMode !== 'zen' && (
-              <>
-                <span className="text-white/15">|</span>
-                <span className="text-alabaster">
-                  <LiveTimer
-                    startedAtMs={engine.startedAtMs}
-                    completedAtMs={engine.completedAtMs}
-                  />
-                </span>
-              </>
-            )}
-          </div>
-
-          <SoundToggleButton />
+          <button
+            type="button"
+            onClick={handleRequestExpand}
+            aria-label="Expand Fullscreen"
+            title="Expand Fullscreen"
+            className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-basalt-850/90 border border-white/10 hover:border-brass/45 text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
+          >
+            <svg
+              viewBox="0 0 20 20"
+              className="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M4 8V4h4M16 8V4h-4M4 12v4h4M16 12v4h-4" />
+            </svg>
+          </button>
         </div>
       </header>
 
@@ -393,38 +484,135 @@ export const App = () => {
         previewCanSnap={engine.previewCanSnap}
       />
 
-      {/* Whisper-Quiet Contextual Footer During Active Play */}
-      <footer className="w-full max-w-[496px] min-h-[36px] flex items-center justify-between text-xs">
+      {/* Bottom Thumb Action Row + Live Reddit Snoovatar Spectrum */}
+      <footer className="w-full max-w-[468px] flex flex-col gap-1.5">
         {!completion.isComplete ? (
-          <>
-            <span
-              className={`tracking-wide transition-opacity duration-500 ${
-                engine.hasInteracted ? 'text-stone-400/75' : 'text-stone-300'
-              }`}
+          <div className="flex items-center justify-between gap-2">
+            {/* Effortless Mobile Thumb Rotate Pill */}
+            <button
+              type="button"
+              onClick={handleRotateActivePieceButton}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-basalt-850 hover:bg-basalt-800 active:scale-95 border border-brass/35 text-xs font-semibold tracking-[0.08em] text-alabaster transition-all cursor-pointer"
             >
-              Drag to inlay · Tap piece to rotate 45°
+              <span className="text-brass text-sm leading-none">↻</span>
+              <span>Rotate 45°</span>
+            </button>
+
+            <span className="text-[11px] text-stone-300 font-mono truncate">
+              {solvesCount > 0
+                ? `${solvesCount} solved${jadeRate > 0 ? ` · ${jadeRate}% Jade` : ''}`
+                : 'Drag stroke into stone groove'}
             </span>
 
-            {engine.hasInteracted && (
+            {engine.hasInteracted ? (
               <button
                 type="button"
                 onClick={handleScatterCurrent}
-                className="text-[11px] tracking-[0.14em] uppercase text-stone-300 hover:text-alabaster px-2.5 py-1 rounded-lg bg-basalt-900/90 border border-white/8 hover:border-white/20 transition-colors cursor-pointer"
+                className="px-3 py-1.5 rounded-full bg-basalt-900 border border-white/10 hover:border-white/25 text-[11px] font-medium tracking-[0.1em] uppercase text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
               >
                 Reset
               </button>
+            ) : (
+              <span className="text-[11px] font-mono text-brass shrink-0">
+                par {completion.parMoves}
+              </span>
             )}
-          </>
+          </div>
         ) : (
-          <span className="mx-auto text-[11px] font-mono tracking-[0.2em] uppercase text-brass">
+          <div className="text-center text-[11px] font-mono tracking-[0.2em] uppercase text-brass">
             {engine.ignitionPhase === 'igniting'
               ? 'Igniting Sigil…'
               : activeEntry.puzzle.subtitle}
-          </span>
+          </div>
+        )}
+
+        {/* r/HotAndCold-Style Bottom Snoovatar Mastery Spectrum */}
+        {entries.length > 0 && (
+          <div className="relative flex items-center w-full h-5 px-1">
+            <span className="text-[9px] font-mono text-stone-400 pr-1.5">
+              ◇
+            </span>
+            <div className="relative flex-1 h-[2px] rounded-full bg-gradient-to-r from-stone-400/35 via-brass/75 to-jade">
+              {entries.slice(0, 6).map((entry) => (
+                <div
+                  key={entry.username}
+                  title={`u/${entry.username} · ${entry.score} pts`}
+                  style={{ left: `${computeSpectrumPercent(entry)}%` }}
+                  className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2"
+                >
+                  {entry.snoovatarUrl ? (
+                    <img
+                      src={entry.snoovatarUrl}
+                      alt={`u/${entry.username}`}
+                      className={`w-5 h-5 object-contain rounded-full bg-basalt-900 border ${
+                        entry.isPerfect ? 'border-jade' : 'border-brass/70'
+                      }`}
+                    />
+                  ) : (
+                    <span
+                      className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold uppercase bg-basalt-900 border ${
+                        entry.isPerfect
+                          ? 'border-jade text-jade'
+                          : 'border-brass text-brass'
+                      }`}
+                    >
+                      {entry.username.slice(0, 1)}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+            <span className="text-[10px] font-mono text-jade pl-1.5">◈</span>
+          </div>
         )}
       </footer>
 
-      {/* Single Authoritative End State (Hydrated with Live Rank, Community Pulse & Thread Share) */}
+      {/* Clean Quick "How to Play" Overlay */}
+      {showHowToPlay && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-basalt-950/85 animate-reveal-rise">
+          <div className="w-full max-w-[380px] rounded-2xl bg-basalt-900 border border-brass/40 p-5 space-y-3.5 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+              <span className="text-xs font-mono tracking-[0.2em] uppercase text-brass">
+                How to Play SIGIL
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowHowToPlay(false)}
+                className="text-xs text-stone-300 hover:text-alabaster px-2 py-0.5 rounded bg-basalt-850 border border-white/10 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            <ul className="space-y-2.5 text-xs text-stone-300 leading-relaxed">
+              <li>
+                <strong className="text-alabaster">1. Rotate:</strong> Tap any
+                white stone piece (or tap{' '}
+                <span className="text-brass font-semibold">↻ Rotate 45°</span>)
+                to match the carved groove’s angle.
+              </li>
+              <li>
+                <strong className="text-alabaster">2. Drag & Inlay:</strong>{' '}
+                Drag the piece into the center astrolabe until it snaps in
+                Molten Brass.
+              </li>
+              <li>
+                <strong className="text-jade">3. Pale Jade Seal:</strong>{' '}
+                Complete within <strong>+2 moves of par</strong> to ignite the
+                altar in Pale Jade and unlock Bonus Seals!
+              </li>
+            </ul>
+            <button
+              type="button"
+              onClick={() => setShowHowToPlay(false)}
+              className="w-full py-2.5 rounded-full bg-brass hover:bg-brass-bright text-basalt-950 text-xs font-extrabold tracking-[0.16em] uppercase cursor-pointer"
+            >
+              Got It
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Single Authoritative End State */}
       {showResultCard && scoreBreakdown && (
         <ResultCard
           mode={activeMode}

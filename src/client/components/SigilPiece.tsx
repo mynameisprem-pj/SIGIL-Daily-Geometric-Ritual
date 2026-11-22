@@ -27,18 +27,6 @@ interface SigilPieceProps {
     e: React.PointerEvent<SVGGElement>,
     pieceId: string
   ) => void;
-  readonly onPiecePointerMove?: (
-    e: React.PointerEvent<SVGGElement>,
-    pieceId: string
-  ) => void;
-  readonly onPiecePointerUp?: (
-    e: React.PointerEvent<SVGGElement>,
-    pieceId: string
-  ) => void;
-  readonly onPiecePointerCancel?: (
-    e: React.PointerEvent<SVGGElement>,
-    pieceId: string
-  ) => void;
   readonly onPieceWheel?: (
     e: React.WheelEvent<SVGGElement>,
     pieceId: string
@@ -49,10 +37,6 @@ interface SigilPieceProps {
   ) => void;
 }
 
-/**
- * Locked pieces sit inlaid inside the carved stone groove.
- * Pale Jade is reserved strictly for Perfect Reconstruction; otherwise Molten Brass.
- */
 export const LockedSigilPiece = memo(function LockedSigilPiece({
   definition,
   state,
@@ -77,7 +61,6 @@ export const LockedSigilPiece = memo(function LockedSigilPiece({
 
   return (
     <g transform={transform} pointerEvents="none">
-      {/* Soft inlaid metallic aura (lightweight stroke opacity, zero blur filter) */}
       <path
         d={definition.localPathD}
         fill="none"
@@ -87,7 +70,6 @@ export const LockedSigilPiece = memo(function LockedSigilPiece({
         strokeLinejoin="round"
         opacity={isPuzzleComplete ? 0.28 : 0.16}
       />
-      {/* Primary inlaid metal body */}
       <path
         d={definition.localPathD}
         fill="none"
@@ -96,7 +78,6 @@ export const LockedSigilPiece = memo(function LockedSigilPiece({
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      {/* Chiseled specular ridge highlight */}
       <path
         d={definition.localPathD}
         fill="none"
@@ -119,14 +100,9 @@ export const InteractiveSigilPiece = memo(function InteractiveSigilPiece({
   registerRotatorRef,
   registerHaloRef,
   onPiecePointerDown,
-  onPiecePointerMove,
-  onPiecePointerUp,
-  onPiecePointerCancel,
   onPieceWheel,
   onPieceContextMenu,
 }: SigilPieceProps) {
-  // Unwrap normalized [0, 360) state angle into a continuous cumulative angle so
-  // CSS 140ms rotation transitions always travel the shortest 45-degree arc (e.g. 315 -> 360).
   const cumulativeRotRef = useRef<number>(state.rotationDeg);
   const delta = shortestSignedAngleDeltaDeg(
     cumulativeRotRef.current,
@@ -141,16 +117,22 @@ export const InteractiveSigilPiece = memo(function InteractiveSigilPiece({
       ref={(node) => registerGroupRef?.(state.id, node)}
       transform={`translate(${state.position.x} ${state.position.y})`}
       className="cursor-grab active:cursor-grabbing"
-      style={{ touchAction: 'none', willChange: 'transform' }}
+      style={{ willChange: 'transform' }}
       onPointerDown={(e) => onPiecePointerDown?.(e, state.id)}
-      onPointerMove={(e) => onPiecePointerMove?.(e, state.id)}
-      onPointerUp={(e) => onPiecePointerUp?.(e, state.id)}
-      onPointerCancel={(e) => onPiecePointerCancel?.(e, state.id)}
-      onLostPointerCapture={(e) => onPiecePointerCancel?.(e, state.id)}
       onWheel={(e) => onPieceWheel?.(e, state.id)}
       onContextMenu={(e) => onPieceContextMenu?.(e, state.id)}
     >
-      {/* Contextual Sub-3-Second Onboarding Cue (centered at (0,0), non-rotating) */}
+      {/* Generous centroid thumb-grab cushion so curved/hooked pieces never miss mobile taps */}
+      <circle
+        cx={0}
+        cy={0}
+        r={28}
+        fill="#000000"
+        fillOpacity={0.001}
+        pointerEvents="all"
+      />
+
+      {/* Contextual Sub-3-Second Onboarding Cue */}
       {showOnboardingHint && (
         <g pointerEvents="none" className="animate-hint-pulse">
           <circle
@@ -180,7 +162,7 @@ export const InteractiveSigilPiece = memo(function InteractiveSigilPiece({
         </g>
       )}
 
-      {/* Magnetic snap-alignment halo (toggled via DOM ref at 60 FPS during drag) */}
+      {/* Magnetic snap-alignment halo */}
       <circle
         ref={(node) => registerHaloRef?.(state.id, node)}
         cx={0}
@@ -193,24 +175,25 @@ export const InteractiveSigilPiece = memo(function InteractiveSigilPiece({
         pointerEvents="none"
       />
 
-      {/* Inner Rotator Group: Smooth 140ms spring around true geometric centroid (0,0) when NOT dragging */}
+      {/* Inner Rotator Group */}
       <g
         ref={(node) => registerRotatorRef?.(state.id, node)}
         className="piece-rotator-spring"
         style={{ transform: `rotate(${cumulativeRotRef.current}deg)` }}
       >
-        {/* Wide 28px invisible hit stroke for effortless touch/mouse acquisition */}
+        {/* Ultra-generous 52-unit mobile touch stroke (opaque black @ 0.001 alpha fixes iOS/Android SVG hit-testing) */}
         <path
           d={definition.localPathD}
           fill="none"
-          stroke="transparent"
-          strokeWidth={28}
+          stroke="#000000"
+          strokeOpacity={0.001}
+          strokeWidth={52}
           strokeLinecap="round"
           strokeLinejoin="round"
           pointerEvents="stroke"
         />
 
-        {/* Soft basalt contact shadow beneath lifted piece */}
+        {/* Soft basalt contact shadow */}
         <path
           d={definition.localPathD}
           fill="none"
@@ -227,10 +210,10 @@ export const InteractiveSigilPiece = memo(function InteractiveSigilPiece({
             d={definition.localPathD}
             fill="none"
             stroke="var(--color-brass)"
-            strokeWidth={8.2}
+            strokeWidth={8.8}
             strokeLinecap="round"
             strokeLinejoin="round"
-            opacity={0.2}
+            opacity={0.24}
             pointerEvents="none"
           />
         )}
@@ -242,7 +225,7 @@ export const InteractiveSigilPiece = memo(function InteractiveSigilPiece({
           stroke={
             isSelected ? 'var(--color-brass-bright)' : 'var(--color-alabaster)'
           }
-          strokeWidth={3.6}
+          strokeWidth={3.8}
           strokeLinecap="round"
           strokeLinejoin="round"
           pointerEvents="none"
@@ -266,9 +249,9 @@ export const InteractiveSigilPiece = memo(function InteractiveSigilPiece({
         <circle
           cx={0}
           cy={0}
-          r={2.3}
+          r={2.5}
           fill="var(--color-brass)"
-          opacity={0.85}
+          opacity={0.9}
           pointerEvents="none"
         />
       )}
