@@ -832,8 +832,8 @@ export const App = () => {
           {/* Top Bar: Clean Brand + 4-Icon Action Cluster + Dropdown Menu */}
           <header className="z-20 w-full max-w-[490px] flex items-center justify-between gap-2">
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-[#111624] border border-white/10 shrink-0">
-                <span className="text-emerald-300 text-sm">◈</span>
+              <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-[#162038] to-[#0D1322] border border-sky-400/25 shadow-[0_0_16px_rgba(56,189,248,0.12)] shrink-0">
+                <span className="text-amber-300 text-base leading-none">◈</span>
               </div>
 
               <div className="min-w-0">
@@ -841,26 +841,32 @@ export const App = () => {
                   <span className="text-sm sm:text-base font-bold tracking-tight text-white truncate">
                     {activeEntry.puzzle.name}
                   </span>
-                  <span className="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold bg-sky-500/15 text-sky-300">
+                  <span className="inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold bg-sky-500/15 text-sky-300 shrink-0">
                     {headerSubtitle}
                   </span>
                 </div>
-                <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                  <span>
-                    {completion.lockedCount} of {completion.totalCount} placed
-                  </span>
-                  <span>·</span>
-                  <span>{engine.moves} moves</span>
-                  {activeMode !== 'zen' && (
-                    <>
-                      <span>·</span>
-                      <LiveTimer
-                        startedAtMs={engine.startedAtMs}
-                        completedAtMs={engine.completedAtMs}
-                      />
-                    </>
-                  )}
-                </div>
+                {!engine.hasInteracted && !completion.isComplete ? (
+                  <p className="text-xs font-medium text-sky-300/90 truncate">
+                    Tap to rotate · Drag into center
+                  </p>
+                ) : (
+                  <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                    <span className="font-medium text-slate-200">
+                      {completion.lockedCount} of {completion.totalCount} placed
+                    </span>
+                    <span>·</span>
+                    <span>{engine.moves} moves</span>
+                    {activeMode !== 'zen' && (
+                      <>
+                        <span>·</span>
+                        <LiveTimer
+                          startedAtMs={engine.startedAtMs}
+                          completedAtMs={engine.completedAtMs}
+                        />
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 

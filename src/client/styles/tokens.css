@@ -9,35 +9,34 @@
   --font-sans: 'Plus Jakarta Sans Variable', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
 
-  /* Basalt Surfaces (Volcanic Lapidary Tablet) */
-  --color-basalt-950: #08090d;
-  --color-basalt-900: #0e1118;
-  --color-basalt-850: #161b26;
-  --color-basalt-800: #1f2636;
+  /* Basalt Surfaces (Midnight Slate Luxury) */
+  --color-basalt-950: #06080f;
+  --color-basalt-900: #0c101b;
+  --color-basalt-850: #131929;
+  --color-basalt-800: #1c2438;
 
-  /* Alabaster & Verified High-Contrast Stone Text */
-  --color-alabaster: #f4f0e6;
-  --color-alabaster-core: #fffdf8;
-  --color-stone-300: #a7b0c4; /* 9.08:1 AAA on basalt-950 */
-  --color-stone-400: #848ea5; /* 5.96:1 AA+ on basalt-950 */
+  /* Alabaster & Verified High-Contrast Text */
+  --color-alabaster: #f8fafc;
+  --color-alabaster-core: #ffffff;
+  --color-stone-300: #94a3b8;
+  --color-stone-400: #64748b;
 
-  /* Precious Metals: Molten Brass */
-  --color-brass: #e5b869; /* 10.22:1 AAA on basalt-900 */
-  --color-brass-bright: #fff0c2;
+  /* Precious Metals: Warm Gold & Mastery Jade */
+  --color-brass: #eab965;
+  --color-brass-bright: #fff3cc;
   --color-brass-deep: #9c7432;
 
-  /* Mastery Exclusive: Pale Jade (ONLY for Perfect Reconstruction & Mastery) */
-  --color-jade: #6bc4a6; /* 8.89:1 AAA on basalt-900 */
-  --color-jade-bright: #b6f0dc;
+  --color-jade: #5eead4;
+  --color-jade-bright: #ccfbf1;
 
-  /* Backward-compatible aliases so existing components never break */
-  --color-obsidian-950: #08090d;
-  --color-obsidian-900: #0e1118;
-  --color-obsidian-800: #161b26;
-  --color-rune-gold: #e5b869;
-  --color-rune-glow: #fff0c2;
-  --color-stone-muted: #a7b0c4;
-  --color-ivory: #f4f0e6;
+  /* Backward-compatible aliases */
+  --color-obsidian-950: #06080f;
+  --color-obsidian-900: #0c101b;
+  --color-obsidian-800: #131929;
+  --color-rune-gold: #eab965;
+  --color-rune-glow: #fff3cc;
+  --color-stone-muted: #94a3b8;
+  --color-ivory: #f8fafc;
 }
 
 @layer base {
@@ -55,20 +54,20 @@
     user-select: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;
-    touch-action: none;
+    touch-action: pan-y;
     overflow: hidden;
   }
 }
 
-/*Lightweight GPU-friendly SVG & UI Keyframes (Zero animated drop-shadow/blur filters)*/
+/* Lightweight GPU-friendly SVG & UI Keyframes */
 @keyframes sigil-hint-pulse {
   0%,
   100% {
-    opacity: 0.3;
-    transform: scale(0.96);
+    opacity: 0.35;
+    transform: scale(0.95);
   }
   50% {
-    opacity: 0.88;
+    opacity: 0.92;
     transform: scale(1.05);
   }
 }
@@ -120,6 +119,25 @@
   }
 }
 
+@keyframes sigil-bezel-drift {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes sigil-groove-breathe {
+  0%,
+  100% {
+    opacity: 0.24;
+  }
+  50% {
+    opacity: 0.44;
+  }
+}
+
 .animate-hint-pulse {
   transform-box: fill-box;
   transform-origin: center;
@@ -146,6 +164,15 @@
   animation: sigil-reveal-rise 420ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
+.animate-bezel-drift {
+  transform-origin: 260px 260px;
+  animation: sigil-bezel-drift 110s linear infinite;
+}
+
+.animate-groove-breathe {
+  animation: sigil-groove-breathe 3.8s ease-in-out infinite;
+}
+
 /* Smooth 140ms spring applied ONLY to inner rotation wrapper when NOT actively dragging */
 .piece-rotator-spring {
   transition: transform 140ms cubic-bezier(0.22, 1, 0.36, 1);
@@ -156,7 +183,9 @@
   .animate-snap-burst,
   .animate-ignition-shockwave,
   .animate-sheen-sweep,
-  .animate-reveal-rise {
+  .animate-reveal-rise,
+  .animate-bezel-drift,
+  .animate-groove-breathe {
     animation: none !important;
   }
 

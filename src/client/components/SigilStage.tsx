@@ -55,8 +55,8 @@ interface SigilStageProps {
 
 interface ActiveDragSession {
   pieceId: string;
-  pointerId: number;
-  pointerType: string;
+  inputKind: 'touch' | 'mouse';
+  identifier: number; // touch.identifier OR mouse pointerId
   startSvgPoint: Point2D;
   initialPiecePos: Point2D;
   grabOffset: Point2D;
@@ -64,8 +64,14 @@ interface ActiveDragSession {
   liveRotationDeg: number;
   maxTravelPx: number;
   downTimestampMs: number;
+  isLifted: boolean;
   rafId: number | null;
 }
+
+const TOUCH_ACQUIRE_RADIUS_SVG = 46;
+const MOUSE_ACQUIRE_RADIUS_SVG = 30;
+const TOUCH_TAP_TOLERANCE_SVG = 16;
+const TOUCH_LIFT_OFFSET_Y = -12; // Lifts piece slightly above thumb during active touch drag
 
 function buildStatesByIdMap(
   states: readonly PieceRuntimeState[]
@@ -73,6 +79,63 @@ function buildStatesByIdMap(
   const map = new Map<string, PieceRuntimeState>();
   for (const s of states) map.set(s.id, s);
   return map;
+}
+
+/**
+ * Pure mathematical hit-test against every unlocked piece's rotated geometry points
+ * and centroid. Completely immune to Android/iOS WebView SVG stroke hit-testing bugs!
+ */
+function findClosestUnlockedPieceId(
+  svgPoint: Point2D,
+  states: readonly PieceRuntimeState[],
+  pieceMap: ReadonlyMap<string, NormalizedPieceDefinition>,
+  maxRadius: number
+): string | null {
+  let bestId: string | null = null;
+  let bestDistSq = maxRadius * maxRadius;
+
+  // Iterate top-most rendered piece first (reverse array order)
+  for (let i = states.length - 1; i >= 0; i--) {
+    const st = states[i]!;
+    if (st.locked) continue;
+    const def = pieceMap.get(st.id);
+    if (!def) continue;
+
+    // Quick bounding-sphere reject
+    const dxCenter = svgPoint.x - st.position.x;
+    const dyCenter = svgPoint.y - st.position.y;
+    const centerDistSq = dxCenter * dxCenter + dyCenter * dyCenter;
+    const outerLimit = def.boundingRadius + maxRadius;
+    if (centerDistSq > outerLimit * outerLimit) continue;
+
+    // Check centroid cushion (slight 6-unit bias toward stroke geometry over empty center)
+    const centroidEffectiveSq = Math.max(0, centerDistSq * 0.85);
+    if (centroidEffectiveSq < bestDistSq && centerDistSq <= 30 * 30) {
+      bestDistSq = centroidEffectiveSq;
+      bestId = st.id;
+    }
+
+    // Check exact rotated stroke sample points
+    const rad = (st.rotationDeg * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+
+    const pts = def.localSamplePoints;
+    for (let j = 0; j < pts.length; j++) {
+      const p = pts[j]!;
+      const wx = st.position.x + p.x * cos - p.y * sin;
+      const wy = st.position.y + p.x * sin + p.y * cos;
+      const dx = svgPoint.x - wx;
+      const dy = svgPoint.y - wy;
+      const dSq = dx * dx + dy * dy;
+      if (dSq < bestDistSq) {
+        bestDistSq = dSq;
+        bestId = st.id;
+      }
+    }
+  }
+
+  return bestId;
 }
 
 const BEZEL_TICKS = Array.from({ length: 24 }, (_, idx) => {
@@ -110,6 +173,28 @@ export function SigilStage({
   const haloNodesRef = useRef(new Map<string, SVGCircleElement>());
   const activeDragRef = useRef<ActiveDragSession | null>(null);
   const wheelThrottleRef = useRef(0);
+
+  // Latest props ref so native non-passive touch listeners never go stale
+  const latestPropsRef = useRef({
+    states,
+    pieceMap,
+    isComplete,
+    onSelectPiece,
+    onCommitDrop,
+    onRotatePiece,
+    previewCanSnap,
+  });
+  useLayoutEffect(() => {
+    latestPropsRef.current = {
+      states,
+      pieceMap,
+      isComplete,
+      onSelectPiece,
+      onCommitDrop,
+      onRotatePiece,
+      previewCanSnap,
+    };
+  });
 
   const statesByIdRef = useRef(buildStatesByIdMap(states));
   useLayoutEffect(() => {
@@ -181,10 +266,198 @@ export function SigilStage({
     []
   );
 
-  const flushDragDomTransform = useCallback(
-    (drag: ActiveDragSession) => {
-      drag.rafId = null;
-      const gNode = groupNodesRef.current.get(drag.pieceId);
+  const flushDragDomTransform = useCallback((drag: ActiveDragSession) => {
+    drag.rafId = null;
+    const gNode = groupNodesRef.current.get(drag.pieceId);
+    if (gNode) {
+      const scaleSuffix =
+        drag.inputKind === 'touch' && drag.isLifted ? ' scale(1.06)' : '';
+      gNode.setAttribute(
+        'transform',
+        `translate(${drag.livePosition.x} ${drag.livePosition.y})${scaleSuffix}`
+      );
+    }
+
+    const haloNode = haloNodesRef.current.get(drag.pieceId);
+    if (haloNode) {
+      const canSnap = latestPropsRef.current.previewCanSnap(
+        drag.pieceId,
+        drag.livePosition,
+        drag.liveRotationDeg
+      );
+      haloNode.setAttribute('opacity', canSnap ? '1' : '0');
+    }
+  }, []);
+
+  const clearHalo = useCallback((pieceId: string) => {
+    const haloNode = haloNodesRef.current.get(pieceId);
+    if (haloNode) haloNode.setAttribute('opacity', '0');
+  }, []);
+
+  // ============================================================================
+  // NATIVE REDDIT MOBILE APP TOUCH ENGINE ({ passive: false } on frame 0!)
+  // ============================================================================
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+
+    const onTouchStart = (ev: TouchEvent) => {
+      const props = latestPropsRef.current;
+      if (props.isComplete || activeDragRef.current !== null) return;
+      if (ev.changedTouches.length === 0) return;
+
+      const touch = ev.changedTouches[0]!;
+      const svgPt = clientToSvgPoint(touch.clientX, touch.clientY);
+
+      const hitPieceId = findClosestUnlockedPieceId(
+        svgPt,
+        props.states,
+        props.pieceMap,
+        TOUCH_ACQUIRE_RADIUS_SVG
+      );
+
+      // If thumb touched EMPTY background, DO NOT preventDefault -> lets Reddit mobile app scroll feed smoothly!
+      if (!hitPieceId) return;
+
+      const pieceState = statesByIdRef.current.get(hitPieceId);
+      if (!pieceState || pieceState.locked) return;
+
+      // CRITICAL FOR REDDIT MOBILE APP: Claim gesture on frame 0 so native Android/iOS host never steals drag!
+      if (ev.cancelable) {
+        ev.preventDefault();
+      }
+      ev.stopPropagation();
+
+      activeDragRef.current = {
+        pieceId: hitPieceId,
+        inputKind: 'touch',
+        identifier: touch.identifier,
+        startSvgPoint: svgPt,
+        initialPiecePos: pieceState.position,
+        grabOffset: {
+          x: pieceState.position.x - svgPt.x,
+          y: pieceState.position.y - svgPt.y,
+        },
+        livePosition: pieceState.position,
+        liveRotationDeg: pieceState.rotationDeg,
+        maxTravelPx: 0,
+        downTimestampMs: performance.now(),
+        isLifted: false,
+        rafId: null,
+      };
+
+      props.onSelectPiece(hitPieceId);
+    };
+
+    const onTouchMove = (ev: TouchEvent) => {
+      const drag = activeDragRef.current;
+      if (!drag || drag.inputKind !== 'touch') return;
+
+      let matchingTouch: Touch | null = null;
+      for (let i = 0; i < ev.changedTouches.length; i++) {
+        const t = ev.changedTouches[i]!;
+        if (t.identifier === drag.identifier) {
+          matchingTouch = t;
+          break;
+        }
+      }
+      if (!matchingTouch) return;
+
+      if (ev.cancelable) {
+        ev.preventDefault();
+      }
+      ev.stopPropagation();
+
+      const svgPt = clientToSvgPoint(
+        matchingTouch.clientX,
+        matchingTouch.clientY
+      );
+      const travel = distanceBetween(svgPt, drag.startSvgPoint);
+
+      if (travel > drag.maxTravelPx) {
+        drag.maxTravelPx = travel;
+      }
+
+      // Keep piece still until finger moves past natural tap jitter threshold
+      if (drag.maxTravelPx <= TOUCH_TAP_TOLERANCE_SVG) {
+        return;
+      }
+
+      if (!drag.isLifted) {
+        drag.isLifted = true;
+        setRotatorSpringEnabled(drag.pieceId, false);
+      }
+
+      const rawX = svgPt.x + drag.grabOffset.x;
+      const rawY = svgPt.y + drag.grabOffset.y + TOUCH_LIFT_OFFSET_Y;
+      drag.livePosition = {
+        x: Math.max(
+          STAGE_PADDING_PX,
+          Math.min(STAGE_VIEWBOX_SIZE - STAGE_PADDING_PX, rawX)
+        ),
+        y: Math.max(
+          STAGE_PADDING_PX,
+          Math.min(STAGE_VIEWBOX_SIZE - STAGE_PADDING_PX, rawY)
+        ),
+      };
+
+      if (drag.rafId === null) {
+        drag.rafId = requestAnimationFrame(() => {
+          if (activeDragRef.current === drag) {
+            flushDragDomTransform(drag);
+          }
+        });
+      }
+    };
+
+    const finishTouch = (ev: TouchEvent, wasCancelled: boolean) => {
+      const drag = activeDragRef.current;
+      if (!drag || drag.inputKind !== 'touch') return;
+
+      let matched = false;
+      for (let i = 0; i < ev.changedTouches.length; i++) {
+        if (ev.changedTouches[i]!.identifier === drag.identifier) {
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) return;
+
+      if (ev.cancelable) {
+        ev.preventDefault();
+      }
+
+      if (drag.rafId !== null) {
+        cancelAnimationFrame(drag.rafId);
+        drag.rafId = null;
+      }
+
+      const pieceId = drag.pieceId;
+      setRotatorSpringEnabled(pieceId, true);
+      clearHalo(pieceId);
+      activeDragRef.current = null;
+
+      const props = latestPropsRef.current;
+      const durationMs = performance.now() - drag.downTimestampMs;
+      const isQuickTap =
+        !wasCancelled &&
+        drag.maxTravelPx <= TOUCH_TAP_TOLERANCE_SVG &&
+        durationMs <= 480;
+
+      if (isQuickTap) {
+        const gNode = groupNodesRef.current.get(pieceId);
+        if (gNode) {
+          gNode.setAttribute(
+            'transform',
+            `translate(${drag.initialPiecePos.x} ${drag.initialPiecePos.y})`
+          );
+        }
+        props.onRotatePiece(pieceId, 1);
+        return;
+      }
+
+      // Reset visual scale(1.06) cleanly before state commit
+      const gNode = groupNodesRef.current.get(pieceId);
       if (gNode) {
         gNode.setAttribute(
           'transform',
@@ -192,54 +465,65 @@ export function SigilStage({
         );
       }
 
-      const haloNode = haloNodesRef.current.get(drag.pieceId);
-      if (haloNode) {
-        const canSnap = previewCanSnap(
-          drag.pieceId,
-          drag.livePosition,
-          drag.liveRotationDeg
-        );
-        haloNode.setAttribute('opacity', canSnap ? '1' : '0');
+      const canSnapNow = props.previewCanSnap(
+        pieceId,
+        drag.livePosition,
+        drag.liveRotationDeg
+      );
+      if (canSnapNow && typeof navigator !== 'undefined' && navigator.vibrate) {
+        try {
+          navigator.vibrate(12);
+        } catch {
+          // Safe ignore on iOS/unsupported browsers
+        }
       }
-    },
-    [previewCanSnap]
-  );
 
-  const clearHalo = useCallback((pieceId: string) => {
-    const haloNode = haloNodesRef.current.get(pieceId);
-    if (haloNode) haloNode.setAttribute('opacity', '0');
-  }, []);
-
-  // Crucial Mobile Fix: Allow native vertical page scrolling over empty stone,
-  // ONLY blocking browser scroll when actively dragging a piece!
-  useEffect(() => {
-    const svg = svgRef.current;
-    if (!svg) return;
-
-    const onTouchMove = (ev: TouchEvent) => {
-      if (activeDragRef.current !== null && ev.cancelable) {
-        ev.preventDefault();
-      }
+      props.onCommitDrop(
+        pieceId,
+        drag.livePosition,
+        drag.maxTravelPx > TOUCH_TAP_TOLERANCE_SVG
+      );
     };
 
-    svg.addEventListener('touchmove', onTouchMove, { passive: false });
+    const onTouchEnd = (ev: TouchEvent) => finishTouch(ev, false);
+    const onTouchCancel = (ev: TouchEvent) => finishTouch(ev, true);
+
+    svg.addEventListener('touchstart', onTouchStart, { passive: false });
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onTouchEnd, { passive: false });
+    window.addEventListener('touchcancel', onTouchCancel, { passive: false });
+
     return () => {
-      svg.removeEventListener('touchmove', onTouchMove);
+      svg.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('touchcancel', onTouchCancel);
     };
-  }, []);
+  }, [
+    clearHalo,
+    clientToSvgPoint,
+    flushDragDomTransform,
+    setRotatorSpringEnabled,
+  ]);
 
-  // Desktop Fix: Non-passive wheel listener stops the Reddit page from scrolling
-  // whenever spinning the mouse wheel over an unlocked piece or during an active drag!
+  // ============================================================================
+  // DESKTOP WHEEL ROTATION (Non-Passive Page-Scroll Blocker)
+  // ============================================================================
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
 
     const onNativeWheel = (ev: WheelEvent) => {
-      if (isComplete) return;
+      const props = latestPropsRef.current;
+      if (props.isComplete) return;
 
-      const targetEl = ev.target as Element | null;
-      const pieceGroup = targetEl?.closest?.('[data-piece-id]');
-      const hoveredPieceId = pieceGroup?.getAttribute('data-piece-id') ?? null;
+      const svgPt = clientToSvgPoint(ev.clientX, ev.clientY);
+      const hoveredPieceId = findClosestUnlockedPieceId(
+        svgPt,
+        props.states,
+        props.pieceMap,
+        MOUSE_ACQUIRE_RADIUS_SVG
+      );
       const targetPieceId =
         activeDragRef.current?.pieceId ?? hoveredPieceId;
 
@@ -248,7 +532,6 @@ export function SigilStage({
       const pieceState = statesByIdRef.current.get(targetPieceId);
       if (!pieceState || pieceState.locked) return;
 
-      // Block the browser from scrolling the Reddit feed!
       if (ev.cancelable) {
         ev.preventDefault();
       }
@@ -270,15 +553,18 @@ export function SigilStage({
         );
         flushDragDomTransform(activeDragRef.current);
       }
-      onRotatePiece(targetPieceId, direction);
+      props.onRotatePiece(targetPieceId, direction);
     };
 
     svg.addEventListener('wheel', onNativeWheel, { passive: false });
     return () => {
       svg.removeEventListener('wheel', onNativeWheel);
     };
-  }, [flushDragDomTransform, isComplete, onRotatePiece]);
+  }, [clientToSvgPoint, flushDragDomTransform]);
 
+  // ============================================================================
+  // KEYBOARD ACCESSIBILITY & SHORTCUTS
+  // ============================================================================
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (isComplete) return;
@@ -388,52 +674,53 @@ export function SigilStage({
     selectedPieceId,
   ]);
 
-  useEffect(() => {
-    const handleWindowBlur = () => {
-      const drag = activeDragRef.current;
-      if (!drag) return;
-      if (drag.rafId !== null) cancelAnimationFrame(drag.rafId);
-      setRotatorSpringEnabled(drag.pieceId, true);
-      clearHalo(drag.pieceId);
-      activeDragRef.current = null;
-      onCommitDrop(
-        drag.pieceId,
-        drag.livePosition,
-        drag.maxTravelPx > TAP_MAX_TRAVEL_PX
-      );
-    };
-
-    window.addEventListener('blur', handleWindowBlur);
-    return () => window.removeEventListener('blur', handleWindowBlur);
-  }, [clearHalo, onCommitDrop, setRotatorSpringEnabled]);
-
-  const handlePiecePointerDown = useCallback(
-    (e: React.PointerEvent<SVGGElement>, pieceId: string) => {
-      if (e.pointerType === 'mouse' && e.button !== 0) return;
-      if (activeDragRef.current !== null) return;
-
-      const pieceState = statesByIdRef.current.get(pieceId);
-      if (!pieceState || pieceState.locked || isComplete) return;
-
-      e.stopPropagation();
-      if (e.pointerType !== 'touch') {
-        e.preventDefault();
-      }
-
-      const svg = svgRef.current;
-      if (svg) {
-        try {
-          svg.setPointerCapture(e.pointerId);
-        } catch {
-          // Fallback if WebView synthetic touch lacks pointer capture
+  // ============================================================================
+  // DESKTOP MOUSE POINTER HANDLERS (Ignores 'touch' since native TouchEngine owns it!)
+  // ============================================================================
+  const handleSvgMouseDown = useCallback(
+    (e: React.PointerEvent<SVGSVGElement>) => {
+      if (e.pointerType === 'touch') return;
+      if (e.button === 2) {
+        // Right-click counter-clockwise rotation
+        const svgPt = clientToSvgPoint(e.clientX, e.clientY);
+        const hitId = findClosestUnlockedPieceId(
+          svgPt,
+          states,
+          pieceMap,
+          MOUSE_ACQUIRE_RADIUS_SVG
+        );
+        if (hitId && !isComplete) {
+          e.preventDefault();
+          onSelectPiece(hitId);
+          onRotatePiece(hitId, -1);
         }
+        return;
       }
+      if (e.button !== 0 || activeDragRef.current !== null || isComplete) return;
 
       const svgPt = clientToSvgPoint(e.clientX, e.clientY);
+      const hitPieceId = findClosestUnlockedPieceId(
+        svgPt,
+        states,
+        pieceMap,
+        MOUSE_ACQUIRE_RADIUS_SVG
+      );
+      if (!hitPieceId) return;
+
+      const pieceState = statesByIdRef.current.get(hitPieceId);
+      if (!pieceState || pieceState.locked) return;
+
+      e.preventDefault();
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // Safe fallback
+      }
+
       activeDragRef.current = {
-        pieceId,
-        pointerId: e.pointerId,
-        pointerType: e.pointerType,
+        pieceId: hitPieceId,
+        inputKind: 'mouse',
+        identifier: e.pointerId,
         startSvgPoint: svgPt,
         initialPiecePos: pieceState.position,
         grabOffset: {
@@ -444,35 +731,32 @@ export function SigilStage({
         liveRotationDeg: pieceState.rotationDeg,
         maxTravelPx: 0,
         downTimestampMs: performance.now(),
+        isLifted: false,
         rafId: null,
       };
 
-      onSelectPiece(pieceId);
+      onSelectPiece(hitPieceId);
     },
-    [clientToSvgPoint, isComplete, onSelectPiece]
+    [clientToSvgPoint, isComplete, onRotatePiece, onSelectPiece, pieceMap, states]
   );
 
-  const handleSvgPointerMove = useCallback(
+  const handleSvgMouseMove = useCallback(
     (e: React.PointerEvent<SVGSVGElement>) => {
+      if (e.pointerType === 'touch') return;
       const drag = activeDragRef.current;
-      if (!drag || drag.pointerId !== e.pointerId) {
+      if (!drag || drag.inputKind !== 'mouse' || drag.identifier !== e.pointerId) {
         return;
       }
 
-      const tapThreshold =
-        drag.pointerType === 'touch' ? 15 : TAP_MAX_TRAVEL_PX;
       const svgPt = clientToSvgPoint(e.clientX, e.clientY);
       const travel = distanceBetween(svgPt, drag.startSvgPoint);
 
       if (travel > drag.maxTravelPx) {
         drag.maxTravelPx = travel;
-        if (travel > tapThreshold) {
+        if (travel > TAP_MAX_TRAVEL_PX && !drag.isLifted) {
+          drag.isLifted = true;
           setRotatorSpringEnabled(drag.pieceId, false);
         }
-      }
-
-      if (drag.maxTravelPx <= tapThreshold && drag.pointerType === 'touch') {
-        return;
       }
 
       const rawX = svgPt.x + drag.grabOffset.x;
@@ -499,10 +783,11 @@ export function SigilStage({
     [clientToSvgPoint, flushDragDomTransform, setRotatorSpringEnabled]
   );
 
-  const finishSvgPointerInteraction = useCallback(
+  const finishSvgMouseInteraction = useCallback(
     (e: React.PointerEvent<SVGSVGElement>, wasCancelled: boolean) => {
+      if (e.pointerType === 'touch') return;
       const drag = activeDragRef.current;
-      if (!drag || drag.pointerId !== e.pointerId) {
+      if (!drag || drag.inputKind !== 'mouse' || drag.identifier !== e.pointerId) {
         return;
       }
 
@@ -511,21 +796,15 @@ export function SigilStage({
         drag.rafId = null;
       }
 
-      const svg = svgRef.current;
-      if (svg && svg.hasPointerCapture(e.pointerId)) {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
         try {
-          svg.releasePointerCapture(e.pointerId);
+          e.currentTarget.releasePointerCapture(e.pointerId);
         } catch {
-          // Ignore if already released
+          // Ignore
         }
       }
 
       const pieceId = drag.pieceId;
-      const tapThreshold =
-        drag.pointerType === 'touch' ? 15 : TAP_MAX_TRAVEL_PX;
-      const maxTapDuration =
-        drag.pointerType === 'touch' ? 420 : TAP_MAX_DURATION_MS;
-
       setRotatorSpringEnabled(pieceId, true);
       clearHalo(pieceId);
       activeDragRef.current = null;
@@ -533,8 +812,8 @@ export function SigilStage({
       const durationMs = performance.now() - drag.downTimestampMs;
       const isQuickTap =
         !wasCancelled &&
-        drag.maxTravelPx <= tapThreshold &&
-        durationMs <= maxTapDuration;
+        drag.maxTravelPx <= TAP_MAX_TRAVEL_PX &&
+        durationMs <= TAP_MAX_DURATION_MS;
 
       if (isQuickTap) {
         const gNode = groupNodesRef.current.get(pieceId);
@@ -551,92 +830,112 @@ export function SigilStage({
       onCommitDrop(
         pieceId,
         drag.livePosition,
-        drag.maxTravelPx > tapThreshold
+        drag.maxTravelPx > TAP_MAX_TRAVEL_PX
       );
     },
     [clearHalo, onCommitDrop, onRotatePiece, setRotatorSpringEnabled]
   );
 
-  const handlePieceContextMenu = useCallback(
-    (e: React.MouseEvent<SVGGElement>, pieceId: string) => {
-      e.preventDefault();
-      const pieceState = statesByIdRef.current.get(pieceId);
-      if (!pieceState || pieceState.locked || isComplete) return;
-      onRotatePiece(pieceId, -1);
-    },
-    [isComplete, onRotatePiece]
-  );
-
   const completionBorderClass = isComplete
     ? isPerfect
-      ? 'border-jade/50'
-      : 'border-brass/50'
-    : 'border-white/10';
+      ? 'border-teal-400/50'
+      : 'border-amber-400/50'
+    : 'border-white/12';
 
-  const ignitionAccentStroke = isPerfect
-    ? 'var(--color-jade-bright)'
-    : 'var(--color-brass-bright)';
-
-  const ignitionPrimaryStroke = isPerfect
-    ? 'var(--color-jade)'
-    : 'var(--color-brass)';
+  const ignitionAccentStroke = isPerfect ? '#CCFBF1' : '#FFF3CC';
+  const ignitionPrimaryStroke = isPerfect ? '#5EEAD4' : '#EAB965';
 
   return (
-    <div className="relative flex items-center justify-center w-full max-w-[min(460px,calc(100dvh-132px))] aspect-square mx-auto">
+    <div className="relative flex items-center justify-center w-full max-w-[min(452px,calc(100dvh-146px))] aspect-square mx-auto">
       <svg
         ref={svgRef}
         viewBox={`0 0 ${STAGE_VIEWBOX_SIZE} ${STAGE_VIEWBOX_SIZE}`}
-        className={`w-full h-full rounded-[26px] bg-basalt-900 border transition-colors duration-500 shadow-[0_20px_54px_rgba(0,0,0,0.72),inset_0_1px_0_rgba(255,255,255,0.06)] select-none ${completionBorderClass}`}
+        className={`w-full h-full rounded-[28px] bg-[#0B0F1A] border transition-colors duration-500 shadow-[0_24px_64px_rgba(0,0,0,0.78),inset_0_1px_0_rgba(255,255,255,0.08)] select-none ${completionBorderClass}`}
         style={{ touchAction: 'pan-y', WebkitTapHighlightColor: 'transparent' }}
-        onPointerMove={handleSvgPointerMove}
-        onPointerUp={(e) => finishSvgPointerInteraction(e, false)}
-        onPointerCancel={(e) => finishSvgPointerInteraction(e, true)}
+        onPointerDown={handleSvgMouseDown}
+        onPointerMove={handleSvgMouseMove}
+        onPointerUp={(e) => finishSvgMouseInteraction(e, false)}
+        onPointerCancel={(e) => finishSvgMouseInteraction(e, true)}
         onContextMenu={(e) => e.preventDefault()}
       >
         <defs>
-          <radialGradient id="sanctum-well" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#07080c" stopOpacity="0.82" />
-            <stop offset="76%" stopColor="#0c0f16" stopOpacity="0.45" />
-            <stop offset="100%" stopColor="#0e1118" stopOpacity="0" />
+          <radialGradient id="sanctum-well" cx="50%" cy="50%" r="52%">
+            <stop offset="0%" stopColor="#121A2E" stopOpacity="0.92" />
+            <stop offset="68%" stopColor="#0C111E" stopOpacity="0.7" />
+            <stop offset="100%" stopColor="#0B0F1A" stopOpacity="0" />
           </radialGradient>
 
           <radialGradient id="sanctum-bloom" cx="50%" cy="50%" r="50%">
             <stop
               offset="0%"
-              stopColor={ignitionPrimaryStroke}
-              stopOpacity={isComplete ? '0.18' : '0.04'}
+              stopColor={isComplete ? ignitionPrimaryStroke : '#38BDF8'}
+              stopOpacity={isComplete ? '0.22' : '0.09'}
             />
             <stop
               offset="72%"
-              stopColor={ignitionPrimaryStroke}
+              stopColor={isComplete ? ignitionPrimaryStroke : '#38BDF8'}
               stopOpacity="0.01"
             />
             <stop offset="100%" stopColor="transparent" stopOpacity="0" />
           </radialGradient>
         </defs>
 
-        {/* LAYER 0: Carved Basalt Astrolabe Altar */}
+        {/* LAYER 0: Living Celestial Astrolabe Altar */}
         <g pointerEvents="none">
+          {/* Outer subtle tray ring */}
           <circle
             cx={SANCTUM_CENTER}
             cy={SANCTUM_CENTER}
-            r={236}
+            r={238}
             fill="none"
-            stroke="rgba(255,255,255,0.03)"
+            stroke="rgba(255,255,255,0.035)"
             strokeWidth={1}
           />
+
+          {/* Illuminated central well */}
           <circle
             cx={SANCTUM_CENTER}
             cy={SANCTUM_CENTER}
-            r={SANCTUM_RADIUS + 20}
+            r={SANCTUM_RADIUS + 24}
             fill="url(#sanctum-well)"
           />
           <circle
             cx={SANCTUM_CENTER}
             cy={SANCTUM_CENTER}
-            r={SANCTUM_RADIUS + 36}
+            r={SANCTUM_RADIUS + 40}
             fill="url(#sanctum-bloom)"
           />
+
+          {/* Ambient Slow-Drifting Celestial Ring (110s smooth rotation) */}
+          <g className="animate-bezel-drift">
+            <circle
+              cx={SANCTUM_CENTER}
+              cy={SANCTUM_CENTER}
+              r={SANCTUM_RADIUS + 15}
+              fill="none"
+              stroke="rgba(148, 163, 184, 0.14)"
+              strokeWidth={1}
+              strokeDasharray="3 9"
+            />
+            {BEZEL_TICKS.map((tick) => (
+              <line
+                key={tick.angleDeg}
+                x1={tick.p1.x}
+                y1={tick.p1.y}
+                x2={tick.p2.x}
+                y2={tick.p2.y}
+                stroke={
+                  tick.isCardinal
+                    ? 'rgba(234, 185, 101, 0.45)'
+                    : 'rgba(148, 163, 184, 0.14)'
+                }
+                strokeWidth={tick.isCardinal ? 1.6 : 1}
+                strokeLinecap="round"
+              />
+            ))}
+          </g>
+
+          {/* Crisp Inner Astrolabe Bezel */}
           <circle
             cx={SANCTUM_CENTER}
             cy={SANCTUM_CENTER}
@@ -645,54 +944,41 @@ export function SigilStage({
             stroke={
               isComplete
                 ? isPerfect
-                  ? 'rgba(107, 196, 166, 0.35)'
-                  : 'rgba(229, 184, 105, 0.35)'
-                : 'rgba(255, 255, 255, 0.09)'
+                  ? 'rgba(94, 234, 212, 0.45)'
+                  : 'rgba(234, 185, 101, 0.45)'
+                : 'rgba(148, 163, 184, 0.18)'
             }
-            strokeWidth={1.25}
-          />
-          <circle
-            cx={SANCTUM_CENTER}
-            cy={SANCTUM_CENTER}
-            r={SANCTUM_RADIUS + 14}
-            fill="none"
-            stroke="rgba(255, 255, 255, 0.045)"
-            strokeWidth={1}
+            strokeWidth={1.3}
           />
 
-          {BEZEL_TICKS.map((tick) => (
-            <line
-              key={tick.angleDeg}
-              x1={tick.p1.x}
-              y1={tick.p1.y}
-              x2={tick.p2.x}
-              y2={tick.p2.y}
-              stroke={
-                tick.isCardinal
-                  ? 'rgba(229, 184, 105, 0.36)'
-                  : 'rgba(255, 255, 255, 0.10)'
-              }
-              strokeWidth={tick.isCardinal ? 1.5 : 1}
+          {/* High-Clarity Target Groove: Deep Carved Channel + Breathing Blueprint Guide */}
+          <path
+            d={puzzle.unifiedSilhouettePathD}
+            fill="none"
+            stroke="rgba(3, 5, 12, 0.95)"
+            strokeWidth={8.4}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path
+            d={puzzle.unifiedSilhouettePathD}
+            fill="none"
+            stroke="rgba(148, 163, 184, 0.24)"
+            strokeWidth={4}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {!isComplete && (
+            <path
+              d={puzzle.unifiedSilhouettePathD}
+              fill="none"
+              stroke="#7DD3FC"
+              strokeWidth={2.2}
               strokeLinecap="round"
+              strokeLinejoin="round"
+              className="animate-groove-breathe"
             />
-          ))}
-
-          <path
-            d={puzzle.unifiedSilhouettePathD}
-            fill="none"
-            stroke="rgba(3, 4, 7, 0.92)"
-            strokeWidth={7.2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <path
-            d={puzzle.unifiedSilhouettePathD}
-            fill="none"
-            stroke="rgba(244, 240, 230, 0.14)"
-            strokeWidth={3.8}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
+          )}
         </g>
 
         {/* LAYER 1: Inlaid Locked Pieces */}
@@ -712,7 +998,7 @@ export function SigilStage({
           })}
         </g>
 
-        {/* LAYER 2: Controlled One-Shot Completion Ignition */}
+        {/* LAYER 2: Completion Ignition */}
         {ignitionPhase === 'igniting' && (
           <g pointerEvents="none">
             <circle
@@ -721,7 +1007,7 @@ export function SigilStage({
               r={SANCTUM_RADIUS + 6}
               fill="none"
               stroke={ignitionPrimaryStroke}
-              strokeWidth={2.2}
+              strokeWidth={2.4}
               className="animate-ignition-shockwave"
             />
             <path
@@ -729,7 +1015,7 @@ export function SigilStage({
               pathLength={1}
               fill="none"
               stroke={ignitionAccentStroke}
-              strokeWidth={5.2}
+              strokeWidth={5.4}
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeDasharray="0.38 1.2"
@@ -738,7 +1024,7 @@ export function SigilStage({
           </g>
         )}
 
-        {/* Individual Piece Snap Ripple */}
+        {/* Snap Ripple */}
         {lastSnapEvent && ignitionPhase === 'dormant' && (
           <g
             key={lastSnapEvent.seq}
@@ -748,10 +1034,10 @@ export function SigilStage({
             <circle
               cx={0}
               cy={0}
-              r={20}
+              r={22}
               fill="none"
-              stroke="var(--color-brass-bright)"
-              strokeWidth={1.8}
+              stroke="#FFF3CC"
+              strokeWidth={2}
               className="animate-snap-burst"
             />
           </g>
@@ -772,8 +1058,6 @@ export function SigilStage({
                 registerGroupRef={registerGroupRef}
                 registerRotatorRef={registerRotatorRef}
                 registerHaloRef={registerHaloRef}
-                onPiecePointerDown={handlePiecePointerDown}
-                onPieceContextMenu={handlePieceContextMenu}
               />
             );
           })}
