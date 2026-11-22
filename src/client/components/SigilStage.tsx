@@ -39,6 +39,11 @@ interface SigilStageProps {
   readonly isPerfect: boolean;
   readonly ignitionPhase: IgnitionPhase;
   readonly lastSnapEvent: SnapFeedbackEvent | null;
+  /** True when viewing inline inside the mobile feed before entering Expanded Mode */
+  readonly mobileInlinePreview?: boolean;
+  /** True when inside Devvit Expanded Fullscreen sheet */
+  readonly isExpanded?: boolean;
+  readonly onLaunchExpanded?: (e: React.MouseEvent<HTMLButtonElement>) => void;
   readonly onSelectPiece: (pieceId: string) => void;
   readonly onCommitDrop: (
     pieceId: string,
@@ -56,7 +61,7 @@ interface SigilStageProps {
 interface ActiveDragSession {
   pieceId: string;
   inputKind: 'touch' | 'mouse';
-  identifier: number; // touch.identifier OR mouse pointerId
+  identifier: number;
   startSvgPoint: Point2D;
   initialPiecePos: Point2D;
   grabOffset: Point2D;
@@ -68,10 +73,10 @@ interface ActiveDragSession {
   rafId: number | null;
 }
 
-const TOUCH_ACQUIRE_RADIUS_SVG = 46;
+const TOUCH_ACQUIRE_RADIUS_SVG = 48;
 const MOUSE_ACQUIRE_RADIUS_SVG = 30;
 const TOUCH_TAP_TOLERANCE_SVG = 16;
-const TOUCH_LIFT_OFFSET_Y = -12; // Lifts piece slightly above thumb during active touch drag
+const TOUCH_LIFT_OFFSET_Y = -12;
 
 function buildStatesByIdMap(
   states: readonly PieceRuntimeState[]
@@ -81,10 +86,6 @@ function buildStatesByIdMap(
   return map;
 }
 
-/**
- * Pure mathematical hit-test against every unlocked piece's rotated geometry points
- * and centroid. Completely immune to Android/iOS WebView SVG stroke hit-testing bugs!
- */
 function findClosestUnlockedPieceId(
   svgPoint: Point2D,
   states: readonly PieceRuntimeState[],
@@ -94,28 +95,24 @@ function findClosestUnlockedPieceId(
   let bestId: string | null = null;
   let bestDistSq = maxRadius * maxRadius;
 
-  // Iterate top-most rendered piece first (reverse array order)
   for (let i = states.length - 1; i >= 0; i--) {
     const st = states[i]!;
     if (st.locked) continue;
     const def = pieceMap.get(st.id);
     if (!def) continue;
 
-    // Quick bounding-sphere reject
     const dxCenter = svgPoint.x - st.position.x;
     const dyCenter = svgPoint.y - st.position.y;
     const centerDistSq = dxCenter * dxCenter + dyCenter * dyCenter;
     const outerLimit = def.boundingRadius + maxRadius;
     if (centerDistSq > outerLimit * outerLimit) continue;
 
-    // Check centroid cushion (slight 6-unit bias toward stroke geometry over empty center)
     const centroidEffectiveSq = Math.max(0, centerDistSq * 0.85);
     if (centroidEffectiveSq < bestDistSq && centerDistSq <= 30 * 30) {
       bestDistSq = centroidEffectiveSq;
       bestId = st.id;
     }
 
-    // Check exact rotated stroke sample points
     const rad = (st.rotationDeg * Math.PI) / 180;
     const cos = Math.cos(rad);
     const sin = Math.sin(rad);
@@ -162,6 +159,9 @@ export function SigilStage({
   isPerfect,
   ignitionPhase,
   lastSnapEvent,
+  mobileInlinePreview = false,
+  isExpanded = false,
+  onLaunchExpanded,
   onSelectPiece,
   onCommitDrop,
   onRotatePiece,
@@ -174,11 +174,11 @@ export function SigilStage({
   const activeDragRef = useRef<ActiveDragSession | null>(null);
   const wheelThrottleRef = useRef(0);
 
-  // Latest props ref so native non-passive touch listeners never go stale
   const latestPropsRef = useRef({
     states,
     pieceMap,
     isComplete,
+    mobileInlinePreview,
     onSelectPiece,
     onCommitDrop,
     onRotatePiece,
@@ -189,6 +189,7 @@ export function SigilStage({
       states,
       pieceMap,
       isComplete,
+      mobileInlinePreview,
       onSelectPiece,
       onCommitDrop,
       onRotatePiece,
@@ -212,7 +213,10 @@ export function SigilStage({
   );
 
   const hintPieceId =
-    !hasInteracted && !isComplete && unlockedStates.length > 0
+    !mobileInlinePreview &&
+    !hasInteracted &&
+    !isComplete &&
+    unlockedStates.length > 0
       ? unlockedStates[0]!.id
       : null;
 
@@ -294,16 +298,20 @@ export function SigilStage({
     if (haloNode) haloNode.setAttribute('opacity', '0');
   }, []);
 
-  // ============================================================================
-  // NATIVE REDDIT MOBILE APP TOUCH ENGINE ({ passive: false } on frame 0!)
-  // ============================================================================
+  // Dedicated Touch Engine (Active ONLY when NOT in mobileInlinePreview!)
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
 
     const onTouchStart = (ev: TouchEvent) => {
       const props = latestPropsRef.current;
-      if (props.isComplete || activeDragRef.current !== null) return;
+      if (
+        props.mobileInlinePreview ||
+        props.isComplete ||
+        activeDragRef.current !== null
+      ) {
+        return;
+      }
       if (ev.changedTouches.length === 0) return;
 
       const touch = ev.changedTouches[0]!;
@@ -316,13 +324,11 @@ export function SigilStage({
         TOUCH_ACQUIRE_RADIUS_SVG
       );
 
-      // If thumb touched EMPTY background, DO NOT preventDefault -> lets Reddit mobile app scroll feed smoothly!
       if (!hitPieceId) return;
 
       const pieceState = statesByIdRef.current.get(hitPieceId);
       if (!pieceState || pieceState.locked) return;
 
-      // CRITICAL FOR REDDIT MOBILE APP: Claim gesture on frame 0 so native Android/iOS host never steals drag!
       if (ev.cancelable) {
         ev.preventDefault();
       }
@@ -378,7 +384,6 @@ export function SigilStage({
         drag.maxTravelPx = travel;
       }
 
-      // Keep piece still until finger moves past natural tap jitter threshold
       if (drag.maxTravelPx <= TOUCH_TAP_TOLERANCE_SVG) {
         return;
       }
@@ -456,7 +461,6 @@ export function SigilStage({
         return;
       }
 
-      // Reset visual scale(1.06) cleanly before state commit
       const gNode = groupNodesRef.current.get(pieceId);
       if (gNode) {
         gNode.setAttribute(
@@ -474,7 +478,7 @@ export function SigilStage({
         try {
           navigator.vibrate(12);
         } catch {
-          // Safe ignore on iOS/unsupported browsers
+          // Ignore
         }
       }
 
@@ -506,16 +510,14 @@ export function SigilStage({
     setRotatorSpringEnabled,
   ]);
 
-  // ============================================================================
-  // DESKTOP WHEEL ROTATION (Non-Passive Page-Scroll Blocker)
-  // ============================================================================
+  // Desktop Non-Passive Wheel Rotation
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
 
     const onNativeWheel = (ev: WheelEvent) => {
       const props = latestPropsRef.current;
-      if (props.isComplete) return;
+      if (props.mobileInlinePreview || props.isComplete) return;
 
       const svgPt = clientToSvgPoint(ev.clientX, ev.clientY);
       const hoveredPieceId = findClosestUnlockedPieceId(
@@ -562,12 +564,10 @@ export function SigilStage({
     };
   }, [clientToSvgPoint, flushDragDomTransform]);
 
-  // ============================================================================
-  // KEYBOARD ACCESSIBILITY & SHORTCUTS
-  // ============================================================================
+  // Keyboard Shortcuts
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (isComplete) return;
+      if (isComplete || mobileInlinePreview) return;
 
       if (e.key === 'Tab' && activeDragRef.current === null) {
         const available = [...statesByIdRef.current.values()].filter(
@@ -668,20 +668,17 @@ export function SigilStage({
   }, [
     flushDragDomTransform,
     isComplete,
+    mobileInlinePreview,
     onCommitDrop,
     onRotatePiece,
     onSelectPiece,
     selectedPieceId,
   ]);
 
-  // ============================================================================
-  // DESKTOP MOUSE POINTER HANDLERS (Ignores 'touch' since native TouchEngine owns it!)
-  // ============================================================================
   const handleSvgMouseDown = useCallback(
     (e: React.PointerEvent<SVGSVGElement>) => {
-      if (e.pointerType === 'touch') return;
+      if (e.pointerType === 'touch' || mobileInlinePreview) return;
       if (e.button === 2) {
-        // Right-click counter-clockwise rotation
         const svgPt = clientToSvgPoint(e.clientX, e.clientY);
         const hitId = findClosestUnlockedPieceId(
           svgPt,
@@ -737,7 +734,15 @@ export function SigilStage({
 
       onSelectPiece(hitPieceId);
     },
-    [clientToSvgPoint, isComplete, onRotatePiece, onSelectPiece, pieceMap, states]
+    [
+      clientToSvgPoint,
+      isComplete,
+      mobileInlinePreview,
+      onRotatePiece,
+      onSelectPiece,
+      pieceMap,
+      states,
+    ]
   );
 
   const handleSvgMouseMove = useCallback(
@@ -845,13 +850,20 @@ export function SigilStage({
   const ignitionAccentStroke = isPerfect ? '#CCFBF1' : '#FFF3CC';
   const ignitionPrimaryStroke = isPerfect ? '#5EEAD4' : '#EAB965';
 
+  // In Expanded Mode, lock touchAction to 'none' on stage so zero scroll gestures exist.
+  // In inline feed mode, keep 'pan-y' so scrolling past the post on mobile is effortless!
+  const svgTouchAction = isExpanded ? 'none' : 'pan-y';
+
   return (
     <div className="relative flex items-center justify-center w-full max-w-[min(452px,calc(100dvh-146px))] aspect-square mx-auto">
       <svg
         ref={svgRef}
         viewBox={`0 0 ${STAGE_VIEWBOX_SIZE} ${STAGE_VIEWBOX_SIZE}`}
         className={`w-full h-full rounded-[28px] bg-[#0B0F1A] border transition-colors duration-500 shadow-[0_24px_64px_rgba(0,0,0,0.78),inset_0_1px_0_rgba(255,255,255,0.08)] select-none ${completionBorderClass}`}
-        style={{ touchAction: 'pan-y', WebkitTapHighlightColor: 'transparent' }}
+        style={{
+          touchAction: svgTouchAction,
+          WebkitTapHighlightColor: 'transparent',
+        }}
         onPointerDown={handleSvgMouseDown}
         onPointerMove={handleSvgMouseMove}
         onPointerUp={(e) => finishSvgMouseInteraction(e, false)}
@@ -882,7 +894,6 @@ export function SigilStage({
 
         {/* LAYER 0: Living Celestial Astrolabe Altar */}
         <g pointerEvents="none">
-          {/* Outer subtle tray ring */}
           <circle
             cx={SANCTUM_CENTER}
             cy={SANCTUM_CENTER}
@@ -891,8 +902,6 @@ export function SigilStage({
             stroke="rgba(255,255,255,0.035)"
             strokeWidth={1}
           />
-
-          {/* Illuminated central well */}
           <circle
             cx={SANCTUM_CENTER}
             cy={SANCTUM_CENTER}
@@ -906,7 +915,6 @@ export function SigilStage({
             fill="url(#sanctum-bloom)"
           />
 
-          {/* Ambient Slow-Drifting Celestial Ring (110s smooth rotation) */}
           <g className="animate-bezel-drift">
             <circle
               cx={SANCTUM_CENTER}
@@ -935,7 +943,6 @@ export function SigilStage({
             ))}
           </g>
 
-          {/* Crisp Inner Astrolabe Bezel */}
           <circle
             cx={SANCTUM_CENTER}
             cy={SANCTUM_CENTER}
@@ -951,7 +958,6 @@ export function SigilStage({
             strokeWidth={1.3}
           />
 
-          {/* High-Clarity Target Groove: Deep Carved Channel + Breathing Blueprint Guide */}
           <path
             d={puzzle.unifiedSilhouettePathD}
             fill="none"
@@ -1043,8 +1049,8 @@ export function SigilStage({
           </g>
         )}
 
-        {/* LAYER 3: Unlocked Interactive Pieces */}
-        <g>
+        {/* LAYER 3: Unlocked Pieces */}
+        <g pointerEvents={mobileInlinePreview ? 'none' : 'auto'}>
           {unlockedStates.map((st) => {
             const def = pieceMap.get(st.id);
             if (!def) return null;
@@ -1063,6 +1069,31 @@ export function SigilStage({
           })}
         </g>
       </svg>
+
+      {/* Mobile Touch In-Feed 1-Tap Launch Veil (Zero Scroll-Trapping + Guaranteed Smooth Fullscreen Dragging!) */}
+      {mobileInlinePreview && onLaunchExpanded && (
+        <button
+          type="button"
+          onClick={onLaunchExpanded}
+          style={{ touchAction: 'pan-y' }}
+          aria-label={`Play ${puzzle.name}`}
+          className="group absolute inset-0 z-20 flex flex-col items-center justify-center rounded-[28px] bg-[#06080F]/25 active:bg-[#06080F]/40 transition-colors cursor-pointer border-0 p-4"
+        >
+          <span className="inline-flex items-center gap-2.5 px-7 py-3.5 rounded-full bg-white group-active:scale-95 text-slate-950 text-sm font-extrabold tracking-wide shadow-[0_12px_36px_rgba(0,0,0,0.85),0_0_28px_rgba(255,255,255,0.22)] transition-transform">
+            <svg
+              viewBox="0 0 16 16"
+              className="w-3.5 h-3.5 fill-current"
+              aria-hidden="true"
+            >
+              <path d="M4 2.5v11l9.5-5.5L4 2.5z" />
+            </svg>
+            <span>Tap to Play</span>
+          </span>
+          <span className="mt-2.5 px-3 py-1 rounded-full bg-[#0B0F1A]/90 border border-white/12 text-[11px] font-semibold text-slate-200 shadow-lg">
+            Opens smooth touch board
+          </span>
+        </button>
+      )}
     </div>
   );
 }
