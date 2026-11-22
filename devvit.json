@@ -1,6 +1,9 @@
 {
   "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
   "name": "sigil-game",
+  "marketingAssets": {
+    "icon": "assets/icon.png"
+  },
   "permissions": {
     "redis": true,
     "journeys": true,
@@ -53,6 +56,6 @@
     "build": "vite build"
   },
   "dev": {
-    "subreddit": "sigil_game_dev"
+    "subreddit": "PlaySigil"
   }
 }

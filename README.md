@@ -1,3 +1,5 @@
+![SIGIL Banner](https://raw.githubusercontent.com/mynameisprem-pj/SIGIL-Daily-Geometric-Ritual/main/assets/banner.jpg)
+
 # SIGIL — Daily Geometric Reconstruction for Reddit
 
 **SIGIL** is a daily spatial-reconstruction ritual built natively on **Devvit Web** (`React 19`, `Hono`, `Devvit Redis`, and `Devvit Journeys`).
