@@ -27,10 +27,6 @@ interface SigilPieceProps {
     e: React.PointerEvent<SVGGElement>,
     pieceId: string
   ) => void;
-  readonly onPieceWheel?: (
-    e: React.WheelEvent<SVGGElement>,
-    pieceId: string
-  ) => void;
   readonly onPieceContextMenu?: (
     e: React.MouseEvent<SVGGElement>,
     pieceId: string
@@ -100,7 +96,6 @@ export const InteractiveSigilPiece = memo(function InteractiveSigilPiece({
   registerRotatorRef,
   registerHaloRef,
   onPiecePointerDown,
-  onPieceWheel,
   onPieceContextMenu,
 }: SigilPieceProps) {
   const cumulativeRotRef = useRef<number>(state.rotationDeg);
@@ -114,12 +109,12 @@ export const InteractiveSigilPiece = memo(function InteractiveSigilPiece({
 
   return (
     <g
+      data-piece-id={state.id}
       ref={(node) => registerGroupRef?.(state.id, node)}
       transform={`translate(${state.position.x} ${state.position.y})`}
       className="cursor-grab active:cursor-grabbing"
       style={{ willChange: 'transform' }}
       onPointerDown={(e) => onPiecePointerDown?.(e, state.id)}
-      onWheel={(e) => onPieceWheel?.(e, state.id)}
       onContextMenu={(e) => onPieceContextMenu?.(e, state.id)}
     >
       {/* Generous centroid thumb-grab cushion so curved/hooked pieces never miss mobile taps */}

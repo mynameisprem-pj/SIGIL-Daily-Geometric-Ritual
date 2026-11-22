@@ -2,7 +2,14 @@ import './index.css';
 
 import { requestExpandedMode } from '@devvit/web/client';
 import * as React from 'react';
-import { StrictMode, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  StrictMode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { createRoot } from 'react-dom/client';
 import { calculateSigilScore } from '../shared/scoring';
 import type { LeaderboardRow, PuzzleCompletionStats } from '../shared/types';
@@ -31,9 +38,11 @@ import {
   submitPuzzleCompletion,
 } from './utils/apiClient';
 
+type CardView = 'play' | 'how-to-play' | 'archive' | 'leaderboard';
+
 function computeSpectrumPercent(entry: LeaderboardRow): number {
   const clamped = Math.max(550, Math.min(1250, entry.score));
-  return Math.round(10 + ((clamped - 550) / 700) * 82);
+  return Math.round(8 + ((clamped - 550) / 700) * 84);
 }
 
 export const App = () => {
@@ -41,12 +50,16 @@ export const App = () => {
   const daily = useDailyPack(session?.dateKey, session?.username);
 
   const [reshuffleCount, setReshuffleCount] = useState(0);
+  const [activeView, setActiveView] = useState<CardView>('play');
+  const [showUnsolvedOnly, setShowUnsolvedOnly] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerTab, setDrawerTab] = useState<SanctumTab>('today');
-  const [showHowToPlay, setShowHowToPlay] = useState(false);
-  const [localRecords, setLocalRecords] = useState<
-    Map<string, CompletedSealRecord>
-  >(() => new Map());
+  const [drawerTab, setDrawerTab] = useState<SanctumTab>('vault');
+  const [localRecords, setLocalRecords] = useState(
+    () => new Map<string, CompletedSealRecord>()
+  );
+
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   const {
     pack,
@@ -68,6 +81,18 @@ export const App = () => {
     notifyAppReadyOnce();
     void ensureActiveJourney(activeEntry.mode, activeEntry.edition);
   }, [activeEntry.edition, activeEntry.mode]);
+
+  // Close dropdown menu when clicking outside
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDownOutside = (ev: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(ev.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    window.addEventListener('pointerdown', onPointerDownOutside);
+    return () => window.removeEventListener('pointerdown', onPointerDownOutside);
+  }, [menuOpen]);
 
   const completedRecords = useMemo(() => {
     const merged = new Map<string, CompletedSealRecord>();
@@ -241,20 +266,21 @@ export const App = () => {
 
   const handleScatterCurrent = useCallback(() => {
     setReshuffleCount((c) => c + 1);
+    setMenuOpen(false);
   }, []);
 
-  const handleOpenLeaderboard = useCallback(() => {
-    setDrawerTab('ranks');
-    setDrawerOpen(true);
+  const handleOpenLeaderboardView = useCallback(() => {
+    setMenuOpen(false);
+    setActiveView('leaderboard');
     handleRefreshLeaderboard();
   }, [handleRefreshLeaderboard]);
 
-  const handleOpenSanctum = useCallback(() => {
-    setDrawerTab('today');
+  const handleOpenJadeVault = useCallback(() => {
+    setMenuOpen(false);
+    setDrawerTab('vault');
     setDrawerOpen(true);
   }, []);
 
-  // Dedicated mobile-friendly Rotate button action (rotates selected piece, or picks first unlocked piece)
   const handleRotateActivePieceButton = useCallback(() => {
     if (completion.isComplete) return;
     const unlocked = engine.states.filter((s) => !s.locked);
@@ -270,6 +296,7 @@ export const App = () => {
 
   const handleRequestExpand = useCallback(
     (e: React.MouseEvent<HTMLButtonElement>) => {
+      setMenuOpen(false);
       trackCommunityInteraction(
         'expand_fullscreen',
         `ed_${activeEntry.edition}`
@@ -277,7 +304,7 @@ export const App = () => {
       try {
         requestExpandedMode(e.nativeEvent, 'game');
       } catch {
-        // Already in expanded mode or standalone tab
+        // Safe fallback if already expanded
       }
     },
     [activeEntry.edition]
@@ -321,18 +348,8 @@ export const App = () => {
     };
   }, [activeMode, advanceZen, dailyUnlocked, pack, selectMode]);
 
-  const modeBadgeLabel =
-    activeMode === 'daily'
-      ? `#${String(activeEntry.edition).padStart(3, '0')}`
-      : activeMode === 'bonus-1'
-        ? `B1 · #${String(activeEntry.edition).padStart(3, '0')}`
-        : activeMode === 'bonus-2'
-          ? `B2 · #${String(activeEntry.edition).padStart(3, '0')}`
-          : activeMode === 'practice'
-            ? 'ARCHIVE'
-            : `ZEN #${activeEntry.edition}`;
-
   const showResultCard =
+    activeView === 'play' &&
     completion.isComplete &&
     engine.ignitionPhase === 'settled' &&
     scoreBreakdown !== null;
@@ -342,277 +359,583 @@ export const App = () => {
     session?.communityPulse?.totalSolves ?? session?.communitySolves ?? 0;
   const jadeRate = session?.communityPulse?.jadeRatePercent ?? 0;
 
+  // Build unified Archive & Challenges list (like HotAndCold's "Play the archive")
+  const archiveCards = useMemo(() => {
+    const items = [
+      {
+        id: 'daily',
+        title: `Challenge #${pack.edition} — ${pack.main.puzzle.name}`,
+        strokes: pack.main.pieceCount,
+        isCurrent: activeMode === 'daily',
+        isTodayMain: true,
+        locked: false,
+        record: completedRecords.get(pack.main.seed) ?? null,
+        onPlay: () => {
+          selectMode('daily');
+          setActiveView('play');
+        },
+      },
+      {
+        id: 'bonus-1',
+        title: `Bonus I — ${pack.bonus1.puzzle.name}`,
+        strokes: pack.bonus1.pieceCount,
+        isCurrent: activeMode === 'bonus-1',
+        isTodayMain: false,
+        locked: !dailyUnlocked,
+        record: completedRecords.get(pack.bonus1.seed) ?? null,
+        onPlay: () => {
+          if (!dailyUnlocked) return;
+          selectMode('bonus-1');
+          setActiveView('play');
+        },
+      },
+      {
+        id: 'bonus-2',
+        title: `Bonus II — ${pack.bonus2.puzzle.name}`,
+        strokes: pack.bonus2.pieceCount,
+        isCurrent: activeMode === 'bonus-2',
+        isTodayMain: false,
+        locked: !dailyUnlocked,
+        record: completedRecords.get(pack.bonus2.seed) ?? null,
+        onPlay: () => {
+          if (!dailyUnlocked) return;
+          selectMode('bonus-2');
+          setActiveView('play');
+        },
+      },
+      ...practiceCatalog.map((item) => ({
+        id: item.key,
+        title: `${item.label} — ${item.entry.puzzle.name}`,
+        strokes: item.entry.pieceCount,
+        isCurrent: activeMode === 'practice' && activePracticeKey === item.key,
+        isTodayMain: false,
+        locked: false,
+        record: completedRecords.get(item.entry.seed) ?? null,
+        onPlay: () => {
+          selectPracticeItem(item.key);
+          setActiveView('play');
+        },
+      })),
+    ];
+
+    if (showUnsolvedOnly) {
+      return items.filter((c) => !c.record);
+    }
+    return items;
+  }, [
+    activeMode,
+    activePracticeKey,
+    completedRecords,
+    dailyUnlocked,
+    pack,
+    practiceCatalog,
+    selectMode,
+    selectPracticeItem,
+    showUnsolvedOnly,
+  ]);
+
+  const headerSubtitle =
+    activeMode === 'daily'
+      ? `Challenge #${activeEntry.edition}`
+      : activeMode === 'bonus-1'
+        ? `Bonus I · #${activeEntry.edition}`
+        : activeMode === 'bonus-2'
+          ? `Bonus II · #${activeEntry.edition}`
+          : activeMode === 'zen'
+            ? `Zen Sanctuary`
+            : `Practice Archive`;
+
   return (
     <main
-      style={{ touchAction: 'pan-y' }}
-      className="relative flex flex-col items-center justify-between w-full h-dvh min-h-[480px] bg-basalt-950 text-alabaster px-3.5 py-2.5 sm:px-5 sm:py-4 overflow-hidden select-none"
+      style={{
+        touchAction: 'pan-y',
+        fontFamily: "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif",
+      }}
+      className="relative flex flex-col items-center justify-between w-full h-dvh min-h-[500px] bg-[#06080F] text-[#F8FAFC] px-4 py-3.5 sm:px-6 sm:py-4 overflow-hidden select-none"
     >
-      <div className="sr-only" aria-live="polite">
-        {completion.isComplete
-          ? `${activeEntry.puzzle.name} reconstructed in ${engine.moves} moves.`
-          : `${completion.lockedCount} of ${completion.totalCount} strokes inlaid.`}
-      </div>
-
-      {/* r/HotAndCold-Style Unified Top Bar: Sigil Identity (Left) + Glass Action Cluster (Right) */}
-      <header className="w-full max-w-[468px] flex items-center justify-between gap-2">
-        <div className="flex flex-col min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[11px] font-mono font-semibold tracking-[0.16em] uppercase text-brass shrink-0">
-              {modeBadgeLabel}
-            </span>
-            <span className="text-stone-400">·</span>
-            <h1
-              className="text-sm sm:text-base font-semibold tracking-[0.1em] uppercase text-alabaster truncate"
-              style={{ fontFamily: 'var(--font-display)' }}
-            >
-              {activeEntry.puzzle.name}
-            </h1>
-          </div>
-
-          <div className="flex items-center gap-2 text-[11px] text-stone-300 font-mono">
-            <span>
-              {completion.lockedCount}/{completion.totalCount} inlaid
-            </span>
-            <span className="text-white/15">·</span>
-            <span>MV {engine.moves}</span>
-            {activeMode !== 'zen' && (
-              <>
-                <span className="text-white/15">·</span>
-                <LiveTimer
-                  startedAtMs={engine.startedAtMs}
-                  completedAtMs={engine.completedAtMs}
-                />
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Clean Top-Right Circular Icon Cluster */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            type="button"
-            onClick={() => setShowHowToPlay((v) => !v)}
-            aria-label="How to Play"
-            title="How to Play"
-            className={`inline-flex items-center justify-center w-8 h-8 rounded-full border transition-colors cursor-pointer ${
-              showHowToPlay
-                ? 'bg-brass text-basalt-950 border-brass'
-                : 'bg-basalt-850/90 border-white/10 hover:border-brass/45 text-stone-300 hover:text-alabaster'
-            }`}
-          >
-            <span className="text-xs font-serif font-bold italic">i</span>
-          </button>
-
-          <SoundToggleButton />
-
-          <button
-            type="button"
-            onClick={handleOpenLeaderboard}
-            aria-label="Leaderboard"
-            title="Leaderboard"
-            className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-basalt-850/90 border border-white/10 hover:border-brass/45 text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
-          >
-            <svg
-              viewBox="0 0 20 20"
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M6 16h8M10 12v4M5.5 4h9v3.5a4.5 4.5 0 0 1-9 0V4Z" />
-              <path d="M5.5 5.5H3.5v1.5a2.5 2.5 0 0 0 2 2.45M14.5 5.5h2v1.5a2.5 2.5 0 0 1-2 2.45" />
-            </svg>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleOpenSanctum}
-            aria-label="Modes & Vault"
-            title="Modes & Vault"
-            className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-basalt-850/90 border border-white/10 hover:border-brass/45 text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
-          >
-            <svg
-              viewBox="0 0 20 20"
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-            >
-              <path d="M3.5 6h13M3.5 10h9.5M3.5 14h13" />
-            </svg>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleRequestExpand}
-            aria-label="Expand Fullscreen"
-            title="Expand Fullscreen"
-            className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-basalt-850/90 border border-white/10 hover:border-brass/45 text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
-          >
-            <svg
-              viewBox="0 0 20 20"
-              className="w-3.5 h-3.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M4 8V4h4M16 8V4h-4M4 12v4h4M16 12v4h-4" />
-            </svg>
-          </button>
-        </div>
-      </header>
-
-      {/* Focused Basalt Astrolabe Stage */}
-      <SigilStage
-        puzzle={engine.puzzle}
-        pieceMap={engine.pieceMap}
-        states={engine.states}
-        selectedPieceId={engine.selectedPieceId}
-        hasInteracted={engine.hasInteracted}
-        isComplete={completion.isComplete}
-        isPerfect={completion.isPerfect}
-        ignitionPhase={engine.ignitionPhase}
-        lastSnapEvent={engine.lastSnapEvent}
-        onSelectPiece={engine.selectAndBringToFront}
-        onCommitDrop={engine.commitPieceDrop}
-        onRotatePiece={engine.rotatePiece}
-        previewCanSnap={engine.previewCanSnap}
+      {/* Subtle radial cool-slate glow behind card (HotAndCold atmosphere) */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(circle at 50% 42%, rgba(30, 41, 59, 0.28) 0%, rgba(6, 8, 15, 0) 70%)',
+        }}
       />
 
-      {/* Bottom Thumb Action Row + Live Reddit Snoovatar Spectrum */}
-      <footer className="w-full max-w-[468px] flex flex-col gap-1.5">
-        {!completion.isComplete ? (
-          <div className="flex items-center justify-between gap-2">
-            {/* Effortless Mobile Thumb Rotate Pill */}
+      {/* ==================== FULL-CARD VIEW 1: HOW TO PLAY ==================== */}
+      {activeView === 'how-to-play' && (
+        <section className="z-20 relative flex flex-col justify-center w-full max-w-[540px] h-full px-3 sm:px-6 py-4 animate-reveal-rise">
+          <button
+            type="button"
+            onClick={() => setActiveView('play')}
+            aria-label="Close How to Play"
+            className="absolute top-2 right-2 inline-flex items-center justify-center w-8 h-8 rounded-lg border border-white/25 hover:border-white/60 bg-white/5 hover:bg-white/10 text-white transition-colors cursor-pointer"
+          >
+            <svg viewBox="0 0 20 20" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M5 5l10 10M15 5L5 15" />
+            </svg>
+          </button>
+
+          <h2 className="text-2xl font-bold tracking-tight text-white mb-3">
+            How to Play
+          </h2>
+
+          <p className="text-sm text-slate-300 leading-relaxed mb-5">
+            Reconstruct today’s shattered sacred rune by rotating and placing each
+            stone stroke into the central astrolabe. Fewer moves earn higher rank.
+          </p>
+
+          <p className="text-sm font-medium text-slate-200 mb-2.5">
+            Controls & Mastery:
+          </p>
+
+          <ul className="space-y-2.5 text-sm text-slate-300 list-disc pl-5 mb-7">
+            <li>
+              <strong className="text-white">Tap a piece</strong> (or scroll your
+              mouse wheel / tap <strong className="text-white">Rotate</strong>) to
+              turn it by <strong className="text-white">45°</strong>.
+            </li>
+            <li>
+              <strong className="text-white">Drag into groove</strong> → snaps into
+              place with a musical chime when aligned.
+            </li>
+            <li>
+              <strong className="text-emerald-300">Pale Jade Seal</strong> → solve
+              within <strong className="text-white">+2 moves of par</strong> for
+              perfect mastery.
+            </li>
+            <li>
+              <strong className="text-amber-300">Bonus Challenges</strong> → unlock
+              2 harder seals every day after finishing the main challenge.
+            </li>
+          </ul>
+
+          <button
+            type="button"
+            onClick={() => setActiveView('play')}
+            className="w-full max-w-[240px] py-2.5 px-6 rounded-full bg-white hover:bg-slate-100 text-slate-950 text-sm font-bold transition-colors cursor-pointer shadow-lg"
+          >
+            Back to Game
+          </button>
+        </section>
+      )}
+
+      {/* ==================== FULL-CARD VIEW 2: PLAY THE ARCHIVE ==================== */}
+      {activeView === 'archive' && (
+        <section className="z-20 relative flex flex-col w-full max-w-[540px] h-full px-2 sm:px-4 py-2 animate-reveal-rise">
+          <button
+            type="button"
+            onClick={() => setActiveView('play')}
+            aria-label="Close Archive"
+            className="absolute top-1.5 right-1.5 inline-flex items-center justify-center w-8 h-8 rounded-lg border border-white/25 hover:border-white/60 bg-white/5 hover:bg-white/10 text-white transition-colors cursor-pointer"
+          >
+            <svg viewBox="0 0 20 20" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M5 5l10 10M15 5L5 15" />
+            </svg>
+          </button>
+
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
+            Play the archive
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-400 mt-0.5 mb-3">
+            Jump into today’s bonus seals or practice challenges.
+          </p>
+
+          <div className="flex items-center gap-2 mb-3">
             <button
               type="button"
-              onClick={handleRotateActivePieceButton}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-basalt-850 hover:bg-basalt-800 active:scale-95 border border-brass/35 text-xs font-semibold tracking-[0.08em] text-alabaster transition-all cursor-pointer"
+              onClick={() => setShowUnsolvedOnly((v) => !v)}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-colors cursor-pointer ${
+                showUnsolvedOnly
+                  ? 'bg-white text-slate-950 border-white'
+                  : 'bg-[#121723] text-slate-200 border-white/15 hover:border-white/35'
+              }`}
             >
-              <span className="text-brass text-sm leading-none">↻</span>
-              <span>Rotate 45°</span>
+              Show unsolved
             </button>
 
-            <span className="text-[11px] text-stone-300 font-mono truncate">
-              {solvesCount > 0
-                ? `${solvesCount} solved${jadeRate > 0 ? ` · ${jadeRate}% Jade` : ''}`
-                : 'Drag stroke into stone groove'}
-            </span>
+            <button
+              type="button"
+              onClick={() => {
+                advanceZen();
+                setActiveView('play');
+              }}
+              className="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#121723] text-emerald-300 border border-emerald-500/30 hover:border-emerald-400/60 transition-colors cursor-pointer"
+            >
+              ∞ Zen Mode
+            </button>
+          </div>
 
-            {engine.hasInteracted ? (
-              <button
-                type="button"
-                onClick={handleScatterCurrent}
-                className="px-3 py-1.5 rounded-full bg-basalt-900 border border-white/10 hover:border-white/25 text-[11px] font-medium tracking-[0.1em] uppercase text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
+          <div className="flex-1 overflow-y-auto space-y-3 pr-1 pb-2">
+            {archiveCards.map((card) => (
+              <div
+                key={card.id}
+                className={`rounded-2xl p-4 border transition-colors ${
+                  card.isCurrent
+                    ? 'bg-[#0C192C] border-sky-500/35'
+                    : 'bg-[#10141F] border-white/8'
+                }`}
               >
-                Reset
-              </button>
-            ) : (
-              <span className="text-[11px] font-mono text-brass shrink-0">
-                par {completion.parMoves}
-              </span>
-            )}
-          </div>
-        ) : (
-          <div className="text-center text-[11px] font-mono tracking-[0.2em] uppercase text-brass">
-            {engine.ignitionPhase === 'igniting'
-              ? 'Igniting Sigil…'
-              : activeEntry.puzzle.subtitle}
-          </div>
-        )}
-
-        {/* r/HotAndCold-Style Bottom Snoovatar Mastery Spectrum */}
-        {entries.length > 0 && (
-          <div className="relative flex items-center w-full h-5 px-1">
-            <span className="text-[9px] font-mono text-stone-400 pr-1.5">
-              ◇
-            </span>
-            <div className="relative flex-1 h-[2px] rounded-full bg-gradient-to-r from-stone-400/35 via-brass/75 to-jade">
-              {entries.slice(0, 6).map((entry) => (
-                <div
-                  key={entry.username}
-                  title={`u/${entry.username} · ${entry.score} pts`}
-                  style={{ left: `${computeSpectrumPercent(entry)}%` }}
-                  className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2"
-                >
-                  {entry.snoovatarUrl ? (
-                    <img
-                      src={entry.snoovatarUrl}
-                      alt={`u/${entry.username}`}
-                      className={`w-5 h-5 object-contain rounded-full bg-basalt-900 border ${
-                        entry.isPerfect ? 'border-jade' : 'border-brass/70'
-                      }`}
-                    />
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <span className="text-sm sm:text-base font-bold text-white">
+                    {card.title}
+                  </span>
+                  {card.isCurrent && (
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-sky-500/20 text-sky-300">
+                      Current
+                    </span>
+                  )}
+                  {card.record ? (
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300">
+                      {card.record.isPerfect ? 'Jade Seal' : 'Solved'}
+                    </span>
                   ) : (
-                    <span
-                      className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold uppercase bg-basalt-900 border ${
-                        entry.isPerfect
-                          ? 'border-jade text-jade'
-                          : 'border-brass text-brass'
-                      }`}
-                    >
-                      {entry.username.slice(0, 1)}
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-white/8 text-slate-300">
+                      Not played
                     </span>
                   )}
                 </div>
-              ))}
-            </div>
-            <span className="text-[10px] font-mono text-jade pl-1.5">◈</span>
-          </div>
-        )}
-      </footer>
 
-      {/* Clean Quick "How to Play" Overlay */}
-      {showHowToPlay && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-basalt-950/85 animate-reveal-rise">
-          <div className="w-full max-w-[380px] rounded-2xl bg-basalt-900 border border-brass/40 p-5 space-y-3.5 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
-              <span className="text-xs font-mono tracking-[0.2em] uppercase text-brass">
-                How to Play SIGIL
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowHowToPlay(false)}
-                className="text-xs text-stone-300 hover:text-alabaster px-2 py-0.5 rounded bg-basalt-850 border border-white/10 cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-            <ul className="space-y-2.5 text-xs text-stone-300 leading-relaxed">
-              <li>
-                <strong className="text-alabaster">1. Rotate:</strong> Tap any
-                white stone piece (or tap{' '}
-                <span className="text-brass font-semibold">↻ Rotate 45°</span>)
-                to match the carved groove’s angle.
-              </li>
-              <li>
-                <strong className="text-alabaster">2. Drag & Inlay:</strong>{' '}
-                Drag the piece into the center astrolabe until it snaps in
-                Molten Brass.
-              </li>
-              <li>
-                <strong className="text-jade">3. Pale Jade Seal:</strong>{' '}
-                Complete within <strong>+2 moves of par</strong> to ignite the
-                altar in Pale Jade and unlock Bonus Seals!
-              </li>
-            </ul>
-            <button
-              type="button"
-              onClick={() => setShowHowToPlay(false)}
-              className="w-full py-2.5 rounded-full bg-brass hover:bg-brass-bright text-basalt-950 text-xs font-extrabold tracking-[0.16em] uppercase cursor-pointer"
-            >
-              Got It
-            </button>
+                <div className="flex flex-wrap items-center gap-2 mb-3.5 text-xs">
+                  <span className="px-2.5 py-0.5 rounded-full bg-white/8 text-slate-200 font-medium">
+                    Score {card.record ? card.record.bestScore : '—'}
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full bg-teal-500/15 text-teal-300 font-medium">
+                    {card.strokes} Strokes
+                  </span>
+                  {card.isTodayMain && solvesCount > 0 && (
+                    <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-medium">
+                      Solves {solvesCount}
+                    </span>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  disabled={card.locked}
+                  onClick={card.onPlay}
+                  className={`w-full py-2 rounded-full text-xs font-bold tracking-wide uppercase transition-colors ${
+                    card.locked
+                      ? 'bg-white/10 text-slate-400 cursor-not-allowed'
+                      : 'bg-white hover:bg-slate-100 text-slate-950 cursor-pointer'
+                  }`}
+                >
+                  {card.locked
+                    ? 'Solve Main Challenge First'
+                    : card.isCurrent
+                      ? 'CONTINUE'
+                      : 'PLAY'}
+                </button>
+              </div>
+            ))}
           </div>
-        </div>
+        </section>
       )}
 
-      {/* Single Authoritative End State */}
+      {/* ==================== FULL-CARD VIEW 3: LEADERBOARD ==================== */}
+      {activeView === 'leaderboard' && (
+        <section className="z-20 relative flex flex-col w-full max-w-[540px] h-full px-2 sm:px-4 py-2 animate-reveal-rise">
+          <button
+            type="button"
+            onClick={() => setActiveView('play')}
+            aria-label="Close Standings"
+            className="absolute top-1.5 right-1.5 inline-flex items-center justify-center w-8 h-8 rounded-lg border border-white/25 hover:border-white/60 bg-white/5 hover:bg-white/10 text-white transition-colors cursor-pointer"
+          >
+            <svg viewBox="0 0 20 20" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M5 5l10 10M15 5L5 15" />
+            </svg>
+          </button>
+
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
+            Challenge #{pack.edition} Standings
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-400 mt-0.5 mb-4">
+            {solvesCount > 0
+              ? `${solvesCount} players finished · ${jadeRate}% earned a Jade Seal`
+              : 'Be the first player on the board today!'}
+          </p>
+
+          <div className="flex-1 overflow-y-auto space-y-2 pr-1 pb-2">
+            {entries.length === 0 ? (
+              <div className="rounded-2xl bg-[#10141F] border border-white/8 p-6 text-center text-sm text-slate-300">
+                No scores recorded for Challenge #{pack.edition} yet.
+              </div>
+            ) : (
+              entries.map((row) => (
+                <div
+                  key={row.username}
+                  className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-[#10141F] border border-white/8"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-xs font-bold text-slate-400 w-6">
+                      #{row.rank}
+                    </span>
+                    {row.snoovatarUrl ? (
+                      <img
+                        src={row.snoovatarUrl}
+                        alt=""
+                        className="w-7 h-7 object-contain shrink-0"
+                      />
+                    ) : (
+                      <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-800 text-xs font-bold text-white shrink-0">
+                        {row.username.slice(0, 1).toUpperCase()}
+                      </span>
+                    )}
+                    <span className="text-sm font-semibold text-white truncate">
+                      u/{row.username}
+                    </span>
+                    {row.isPerfect && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300">
+                        Jade
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="text-sm font-bold text-white">
+                      {row.score}
+                    </span>
+                    <span className="text-xs text-slate-400 ml-1">pts</span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setActiveView('play')}
+            className="mt-2 w-full py-2.5 rounded-full bg-white hover:bg-slate-100 text-slate-950 text-xs font-bold uppercase tracking-wide cursor-pointer"
+          >
+            Back to Game
+          </button>
+        </section>
+      )}
+
+      {/* ==================== MAIN PLAY VIEW (CLEAN HOTANDCOLD POLISH) ==================== */}
+      {activeView === 'play' && (
+        <>
+          {/* Top Bar: Clean Brand + 4-Icon Action Cluster + Dropdown Menu */}
+          <header className="z-20 w-full max-w-[490px] flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              {/* Crisp Sigil Emblem */}
+              <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-[#111624] border border-white/10 shrink-0">
+                <span className="text-amber-300 text-sm">◈</span>
+              </div>
+
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm sm:text-base font-bold tracking-tight text-white truncate">
+                    {activeEntry.puzzle.name}
+                  </span>
+                  <span className="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold bg-white/8 text-slate-300">
+                    {headerSubtitle}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                  <span>
+                    {completion.lockedCount} of {completion.totalCount} placed
+                  </span>
+                  <span>·</span>
+                  <span>{engine.moves} moves</span>
+                  {activeMode !== 'zen' && (
+                    <>
+                      <span>·</span>
+                      <LiveTimer
+                        startedAtMs={engine.startedAtMs}
+                        completedAtMs={engine.completedAtMs}
+                      />
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Exact 4-Button Cluster: (i) | Sound | Archive | Menu (≡) */}
+            <div ref={menuRef} className="relative flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => setActiveView('how-to-play')}
+                aria-label="How to Play"
+                title="How to Play"
+                className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-[#111624] hover:bg-[#1A2236] border border-white/10 text-slate-200 transition-colors cursor-pointer"
+              >
+                <svg viewBox="0 0 20 20" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.7">
+                  <circle cx="10" cy="10" r="7.2" />
+                  <path d="M10 9v4.2M10 6.5h.01" strokeLinecap="round" />
+                </svg>
+              </button>
+
+              <SoundToggleButton />
+
+              <button
+                type="button"
+                onClick={() => setActiveView('archive')}
+                aria-label="Play the Archive"
+                title="Play the Archive"
+                className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-[#111624] hover:bg-[#1A2236] border border-white/10 text-slate-200 transition-colors cursor-pointer"
+              >
+                <svg viewBox="0 0 20 20" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3.5" y="4.5" width="13" height="3" rx="0.8" />
+                  <path d="M4.8 7.5v7.2a1.3 1.3 0 0 0 1.3 1.3h7.8a1.3 1.3 0 0 0 1.3-1.3V7.5M8.2 11h3.6" />
+                </svg>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setMenuOpen((v) => !v)}
+                aria-label="Menu"
+                title="Menu"
+                className={`inline-flex items-center justify-center w-9 h-9 rounded-full border transition-colors cursor-pointer ${
+                  menuOpen
+                    ? 'bg-white text-slate-950 border-white'
+                    : 'bg-[#111624] hover:bg-[#1A2236] border-white/10 text-slate-200'
+                }`}
+              >
+                <svg viewBox="0 0 20 20" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <path d="M4 6.5h12M4 10h12M4 13.5h12" />
+                </svg>
+              </button>
+
+              {/* Floating Glass Dropdown Menu (Just like HotAndCold!) */}
+              {menuOpen && (
+                <div className="absolute right-0 top-11 z-40 w-48 rounded-xl bg-[#111624]/98 border border-white/15 py-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.75)] backdrop-blur-md">
+                  <button
+                    type="button"
+                    onClick={handleRequestExpand}
+                    className="w-full text-left px-4 py-2 text-sm font-medium text-slate-100 hover:bg-white/8 transition-colors cursor-pointer"
+                  >
+                    Toggle Fullscreen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenLeaderboardView}
+                    className="w-full text-left px-4 py-2 text-sm font-medium text-slate-100 hover:bg-white/8 transition-colors cursor-pointer"
+                  >
+                    Standings (#{pack.edition})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenJadeVault}
+                    className="w-full text-left px-4 py-2 text-sm font-medium text-slate-100 hover:bg-white/8 transition-colors cursor-pointer"
+                  >
+                    Jade Seal Vault
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      advanceZen();
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm font-medium text-slate-100 hover:bg-white/8 transition-colors cursor-pointer"
+                  >
+                    Zen Mode
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleScatterCurrent}
+                    className="w-full text-left px-4 py-2 text-sm font-medium text-slate-100 hover:bg-white/8 transition-colors cursor-pointer"
+                  >
+                    Reset Pieces
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setActiveView('how-to-play');
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm font-medium text-slate-100 hover:bg-white/8 transition-colors cursor-pointer"
+                  >
+                    How to Play
+                  </button>
+                </div>
+              )}
+            </div>
+          </header>
+
+          {/* Center Puzzle Stage */}
+          <SigilStage
+            puzzle={engine.puzzle}
+            pieceMap={engine.pieceMap}
+            states={engine.states}
+            selectedPieceId={engine.selectedPieceId}
+            hasInteracted={engine.hasInteracted}
+            isComplete={completion.isComplete}
+            isPerfect={completion.isPerfect}
+            ignitionPhase={engine.ignitionPhase}
+            lastSnapEvent={engine.lastSnapEvent}
+            onSelectPiece={engine.selectAndBringToFront}
+            onCommitDrop={engine.commitPieceDrop}
+            onRotatePiece={engine.rotatePiece}
+            previewCanSnap={engine.previewCanSnap}
+          />
+
+          {/* Clean Bottom Bar + Full-Character Snoovatar Progress Line */}
+          <footer className="z-10 w-full max-w-[490px] flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              {!completion.isComplete ? (
+                <button
+                  type="button"
+                  onClick={handleRotateActivePieceButton}
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#161D2E] hover:bg-[#1F2940] active:scale-95 border border-white/12 text-xs font-semibold text-white transition-all cursor-pointer"
+                >
+                  <span>↻</span>
+                  <span>Rotate 45°</span>
+                </button>
+              ) : (
+                <span className="text-xs font-semibold text-emerald-300">
+                  Sigil Reconstructed!
+                </span>
+              )}
+
+              <span className="text-xs text-slate-400 truncate">
+                {solvesCount > 0
+                  ? `${jadeRate}% of ${solvesCount} ${solvesCount === 1 ? 'player' : 'players'} earned Jade`
+                  : `Par ${completion.parMoves} moves · Tap piece to rotate`}
+              </span>
+
+              <button
+                type="button"
+                onClick={() => setActiveView('how-to-play')}
+                className="px-3.5 py-1.5 rounded-full bg-[#161D2E] hover:bg-[#1F2940] border border-white/10 text-xs font-semibold text-slate-200 transition-colors cursor-pointer shrink-0"
+              >
+                How to Play
+              </button>
+            </div>
+
+            {/* Full-Body Reddit Snoovatar Spectrum Line (HotAndCold Style!) */}
+            <div className="relative flex items-center w-full h-7 px-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-teal-400 shrink-0" />
+              <div className="relative flex-1 h-[2px] bg-gradient-to-r from-teal-400 via-amber-300 to-rose-400">
+                {entries.slice(0, 8).map((entry) => (
+                  <div
+                    key={entry.username}
+                    title={`u/${entry.username} · ${entry.score} pts`}
+                    style={{ left: `${computeSpectrumPercent(entry)}%` }}
+                    className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2"
+                  >
+                    {entry.snoovatarUrl ? (
+                      <img
+                        src={entry.snoovatarUrl}
+                        alt={`u/${entry.username}`}
+                        className="w-7 h-7 object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,0.95)]"
+                      />
+                    ) : (
+                      <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#161D2E] border border-white/25 text-[10px] font-bold text-white shadow">
+                        {entry.username.slice(0, 1).toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <svg viewBox="0 0 12 12" className="w-3 h-3 text-rose-400 -ml-1 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 2l5 4-5 4" />
+              </svg>
+            </div>
+          </footer>
+        </>
+      )}
+
+      {/* Completion Result Overlay */}
       {showResultCard && scoreBreakdown && (
         <ResultCard
           mode={activeMode}
@@ -629,12 +952,12 @@ export const App = () => {
           onMarkedCommentShared={handleMarkedCommentShared}
           nextAction={nextAction}
           onReplay={handleScatterCurrent}
-          onOpenLeaderboard={handleOpenLeaderboard}
-          onOpenSanctum={handleOpenSanctum}
+          onOpenLeaderboard={handleOpenLeaderboardView}
+          onOpenSanctum={handleOpenJadeVault}
         />
       )}
 
-      {/* Slide-Over Sanctum Codex Drawer */}
+      {/* Jade Seal Collection Drawer */}
       <SanctumDrawer
         open={drawerOpen}
         activeTab={drawerTab}

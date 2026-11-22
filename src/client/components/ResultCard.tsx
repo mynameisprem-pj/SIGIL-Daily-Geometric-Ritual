@@ -122,25 +122,20 @@ export const ResultCard = memo(function ResultCard({
 
   if (inspectingAltar) {
     return (
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 w-full max-w-[460px] px-4 animate-reveal-rise">
-        <div
-          className={`flex items-center justify-between gap-3 px-4 py-2.5 rounded-full bg-basalt-900/95 border shadow-2xl ${
-            isPerfect ? 'border-jade/50' : 'border-brass/50'
-          }`}
-        >
+      <div
+        style={{
+          fontFamily: "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif",
+        }}
+        className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 w-full max-w-[460px] px-4 animate-reveal-rise"
+      >
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-full bg-[#101522]/95 border border-white/15 shadow-2xl backdrop-blur-md">
           <div className="flex items-center gap-2 text-xs">
-            <span
-              className={`font-semibold tracking-[0.14em] uppercase ${
-                isPerfect ? 'text-jade' : 'text-brass'
-              }`}
-            >
-              {puzzle.name}
-            </span>
+            <span className="font-bold text-white">{puzzle.name}</span>
             {!isZen && (
               <>
-                <span className="text-stone-400">·</span>
-                <span className="font-mono text-alabaster">
-                  {score.totalScore} PTS
+                <span className="text-slate-500">·</span>
+                <span className="font-semibold text-slate-300">
+                  {score.totalScore.toLocaleString('en-US')} pts
                 </span>
               </>
             )}
@@ -149,29 +144,25 @@ export const ResultCard = memo(function ResultCard({
           <button
             type="button"
             onClick={() => setInspectingAltar(false)}
-            className={`px-4 py-1.5 rounded-full text-xs font-bold tracking-[0.14em] uppercase text-basalt-950 transition-colors cursor-pointer ${
-              isPerfect
-                ? 'bg-jade hover:bg-jade-bright'
-                : 'bg-brass hover:bg-brass-bright'
-            }`}
+            className="px-4 py-1.5 rounded-full bg-white hover:bg-slate-100 text-slate-950 text-xs font-bold transition-colors cursor-pointer"
           >
-            Result Card
+            View Summary
           </button>
         </div>
       </div>
     );
   }
 
-  const modeEyebrow =
+  const modeLabel =
     mode === 'daily'
-      ? `DAILY SIGIL #${String(edition).padStart(3, '0')}`
+      ? `Challenge #${edition}`
       : mode === 'bonus-1'
-        ? `BONUS I · #${String(edition).padStart(3, '0')}`
+        ? `Bonus I · #${edition}`
         : mode === 'bonus-2'
-          ? `BONUS II · #${String(edition).padStart(3, '0')}`
+          ? `Bonus II · #${edition}`
           : mode === 'practice'
-            ? `ARCHIVE · #${String(edition).padStart(3, '0')}`
-            : `ZEN RITUAL #${edition}`;
+            ? `Archive · #${edition}`
+            : `Zen Mode #${edition}`;
 
   const rankDisplay =
     mode !== 'daily'
@@ -201,33 +192,44 @@ export const ResultCard = memo(function ResultCard({
       role="dialog"
       aria-modal="true"
       aria-labelledby="result-sigil-title"
-      className="fixed inset-0 z-30 flex items-center justify-center p-4 bg-basalt-950/80 animate-reveal-rise"
+      style={{
+        fontFamily: "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif",
+      }}
+      className="fixed inset-0 z-30 flex items-center justify-center p-4 bg-[#06080F]/85 backdrop-blur-sm animate-reveal-rise"
     >
-      <div
-        className={`relative w-full max-w-[440px] rounded-[26px] bg-basalt-900 border p-5 sm:p-6 shadow-[0_28px_80px_rgba(0,0,0,0.88)] ${
-          isPerfect ? 'border-jade/50' : 'border-brass/45'
-        }`}
-      >
-        {/* Top Row: Eyebrow + Inspect Altar Toggle */}
-        <div className="flex items-center justify-between gap-2 mb-3.5">
-          <span className="text-[11px] font-mono tracking-[0.2em] uppercase text-stone-300">
-            {modeEyebrow}
-          </span>
+      <div className="relative w-full max-w-[440px] rounded-3xl bg-[#0E1320] border border-white/12 p-5 sm:p-6 shadow-[0_28px_80px_rgba(0,0,0,0.85)] text-white">
+        {/* Top Row: Challenge Pill + Close/Inspect Button */}
+        <div className="flex items-center justify-between gap-2 mb-4">
+          <div className="flex items-center gap-2">
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-500/20 text-sky-300">
+              {modeLabel}
+            </span>
+            <span
+              className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                isPerfect
+                  ? 'bg-emerald-500/20 text-emerald-300'
+                  : 'bg-amber-500/20 text-amber-300'
+              }`}
+            >
+              {isPerfect ? 'Jade Seal' : score.gradeLabel}
+            </span>
+          </div>
 
           <button
             type="button"
             onClick={() => setInspectingAltar(true)}
-            className="text-[11px] tracking-[0.14em] uppercase text-stone-300 hover:text-alabaster px-2.5 py-1 rounded-full bg-basalt-850 border border-white/10 hover:border-white/25 transition-colors cursor-pointer"
+            title="Inspect Completed Sigil"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-white/20 hover:border-white/50 bg-white/5 hover:bg-white/10 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
           >
-            Inspect Altar
+            <span>Inspect</span>
           </button>
         </div>
 
-        {/* Center Hero: Miniature Reconstructed Crest + Title + Mastery Seal */}
-        <div className="flex items-center gap-4 pb-3.5 mb-3.5 border-b border-white/8">
+        {/* Center Hero: Reconstructed Crest + Clean Title + Score */}
+        <div className="flex items-center gap-4 pb-4 mb-4 border-b border-white/8">
           <div
-            className={`shrink-0 flex items-center justify-center w-20 h-20 rounded-2xl bg-basalt-950 border ${
-              isPerfect ? 'border-jade/40' : 'border-brass/35'
+            className={`shrink-0 flex items-center justify-center w-20 h-20 rounded-2xl bg-[#080B13] border ${
+              isPerfect ? 'border-emerald-400/35' : 'border-amber-400/30'
             }`}
           >
             <svg viewBox="115 115 290 290" className="w-16 h-16">
@@ -242,7 +244,7 @@ export const ResultCard = memo(function ResultCard({
               <path
                 d={puzzle.unifiedSilhouettePathD}
                 fill="none"
-                stroke={isPerfect ? 'var(--color-jade)' : 'var(--color-brass)'}
+                stroke={isPerfect ? '#6BC4A6' : '#E5B869'}
                 strokeWidth="5.2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -251,168 +253,109 @@ export const ResultCard = memo(function ResultCard({
           </div>
 
           <div className="flex flex-col min-w-0">
-            <span
-              className={`text-[11px] font-semibold tracking-[0.18em] uppercase ${
-                isPerfect ? 'text-jade' : 'text-brass'
-              }`}
-            >
-              {isPerfect
-                ? '◈ Jade Seal · Perfect Reconstruction'
-                : `◈ ${score.gradeLabel}`}
-            </span>
-
             <h2
               id="result-sigil-title"
-              className="text-lg sm:text-xl font-semibold tracking-[0.12em] uppercase text-alabaster truncate mt-0.5"
-              style={{ fontFamily: 'var(--font-display)' }}
+              className="text-xl font-bold tracking-tight text-white truncate"
             >
               {puzzle.name}
             </h2>
 
             {!isZen ? (
-              <div className="flex items-baseline gap-2 mt-1">
-                <span
-                  className={`text-2xl font-bold font-mono tabular-nums ${
-                    isPerfect ? 'text-jade' : 'text-alabaster'
-                  }`}
-                >
+              <div className="flex items-baseline gap-1.5 mt-1">
+                <span className="text-2xl font-extrabold text-white tabular-nums">
                   {score.totalScore.toLocaleString('en-US')}
                 </span>
-                <span className="text-[11px] font-mono uppercase tracking-widest text-stone-300">
-                  PTS
+                <span className="text-xs font-semibold text-slate-400">
+                  points
                 </span>
               </div>
             ) : (
-              <span className="text-xs text-stone-300 mt-1">
-                Untimed Meditative Reconstruction
+              <span className="text-xs text-slate-400 mt-1">
+                Untimed meditative reconstruction
               </span>
             )}
           </div>
         </div>
 
-        {/* 4-Cell Stat Grid */}
-        <div className="grid grid-cols-4 gap-2 mb-3">
-          <div className="flex flex-col items-center justify-center py-2.5 px-1.5 rounded-xl bg-basalt-950/90 border border-white/6">
-            <span className="text-[10px] tracking-[0.16em] uppercase text-stone-300">
-              Moves
-            </span>
-            <span className="text-sm font-mono font-semibold text-alabaster mt-0.5 tabular-nums">
+        {/* Clean 4-Cell Stat Grid */}
+        <div className="grid grid-cols-4 gap-2 mb-3.5">
+          <div className="flex flex-col items-center justify-center py-2.5 px-1.5 rounded-2xl bg-[#141B2D] border border-white/6">
+            <span className="text-[11px] font-medium text-slate-400">Moves</span>
+            <span className="text-base font-bold text-white mt-0.5 tabular-nums">
               {completion.moves}
             </span>
             <span
-              className={`text-[10px] font-mono ${
-                isPerfect ? 'text-jade' : 'text-stone-400'
+              className={`text-[10px] font-medium ${
+                isPerfect ? 'text-emerald-300' : 'text-slate-400'
               }`}
             >
               par {completion.parMoves}
             </span>
           </div>
 
-          <div className="flex flex-col items-center justify-center py-2.5 px-1.5 rounded-xl bg-basalt-950/90 border border-white/6">
-            <span className="text-[10px] tracking-[0.16em] uppercase text-stone-300">
-              Time
-            </span>
-            <span className="text-sm font-mono font-semibold text-alabaster mt-0.5 tabular-nums">
+          <div className="flex flex-col items-center justify-center py-2.5 px-1.5 rounded-2xl bg-[#141B2D] border border-white/6">
+            <span className="text-[11px] font-medium text-slate-400">Time</span>
+            <span className="text-base font-bold text-white mt-0.5 tabular-nums">
               {isZen ? '—' : formatDurationMs(completion.elapsedMs)}
             </span>
-            <span className="text-[10px] font-mono text-stone-400">
+            <span className="text-[10px] font-medium text-slate-400">
               {isZen ? 'untimed' : `${completion.totalCount} strokes`}
             </span>
           </div>
 
-          <div className="flex flex-col items-center justify-center py-2.5 px-1.5 rounded-xl bg-basalt-950/90 border border-white/6">
-            <span className="text-[10px] tracking-[0.16em] uppercase text-stone-300">
-              Streak
-            </span>
-            <span className="text-sm font-mono font-semibold text-brass mt-0.5 tabular-nums">
+          <div className="flex flex-col items-center justify-center py-2.5 px-1.5 rounded-2xl bg-[#141B2D] border border-white/6">
+            <span className="text-[11px] font-medium text-slate-400">Streak</span>
+            <span className="text-base font-bold text-amber-300 mt-0.5 tabular-nums">
               {streakDisplay}
             </span>
-            <span className="text-[10px] font-mono text-stone-400">
-              {mode === 'daily' ? 'active' : 'daily only'}
+            <span className="text-[10px] font-medium text-slate-400">
+              {mode === 'daily' ? 'active' : 'daily'}
             </span>
           </div>
 
           <button
             type="button"
             onClick={onOpenLeaderboard}
-            title="View Today’s Top 10 Leaderboard"
-            className="flex flex-col items-center justify-center py-2.5 px-1.5 rounded-xl bg-basalt-950/90 border border-white/10 hover:border-brass/45 transition-colors cursor-pointer"
+            title="View Standings"
+            className="flex flex-col items-center justify-center py-2.5 px-1.5 rounded-2xl bg-[#141B2D] hover:bg-[#1B243B] border border-white/10 transition-colors cursor-pointer"
           >
-            <span className="text-[10px] tracking-[0.16em] uppercase text-stone-300">
-              Rank
-            </span>
-            <span className="text-sm font-mono font-semibold text-alabaster mt-0.5 tabular-nums">
+            <span className="text-[11px] font-medium text-slate-400">Rank</span>
+            <span className="text-base font-bold text-white mt-0.5 tabular-nums">
               {rankDisplay}
             </span>
-            <span className="text-[10px] font-mono text-brass">
+            <span className="text-[10px] font-semibold text-sky-300">
               {percentile !== null && mode === 'daily'
                 ? `Top ${Math.max(1, Math.round(percentile))}%`
-                : 'board →'}
+                : 'View →'}
             </span>
           </button>
         </div>
 
-        {/* Live Subreddit Community Pulse Benchmark */}
+        {/* Subreddit Community Benchmark Pill */}
         {showPulseLine && communityPulse && (
-          <div className="flex items-center justify-center gap-2 py-1.5 px-3 mb-3.5 rounded-xl bg-basalt-950/70 border border-white/6 text-[11px] font-mono text-stone-300">
+          <div className="flex items-center justify-center gap-2 py-2 px-3 mb-3.5 rounded-xl bg-[#141B2D]/75 border border-white/6 text-xs text-slate-300">
             <span>
-              Subreddit avg: {communityPulse.avgMoves} mv ·{' '}
+              Community avg: {communityPulse.avgMoves} moves ·{' '}
               {formatDurationMs(communityPulse.avgElapsedMs ?? 0)}
             </span>
-            <span className="text-stone-400">·</span>
-            <span className="text-jade">
-              ◈ {communityPulse.jadeRatePercent}% Jade
+            <span className="text-slate-500">·</span>
+            <span className="font-semibold text-emerald-300">
+              {communityPulse.jadeRatePercent}% Jade
             </span>
           </div>
         )}
 
-        {/* Reddit-Native Sharing Row: One-Tap Post to Thread + Copy Dispatch */}
-        <div className="grid grid-cols-2 gap-2 mb-2.5">
-          {isAuthenticated && (
-            <button
-              type="button"
-              disabled={postingComment || commentSharedToday}
-              onClick={() => void handlePostComment()}
-              className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border text-xs font-semibold tracking-[0.12em] uppercase transition-colors ${
-                commentSharedToday
-                  ? 'bg-basalt-950 border-jade/40 text-jade cursor-default'
-                  : 'bg-basalt-850 border-brass/45 hover:border-brass text-alabaster cursor-pointer'
-              }`}
-            >
-              {commentSharedToday
-                ? 'Inscribed ✓'
-                : postingComment
-                  ? 'Inscribing…'
-                  : 'Post to Thread'}
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => void handleCopyShare()}
-            className={`flex items-center justify-center py-2.5 px-3 rounded-xl bg-basalt-850 border border-white/12 hover:border-brass/50 text-xs font-semibold tracking-[0.12em] uppercase text-alabaster transition-colors cursor-pointer ${
-              !isAuthenticated ? 'col-span-2' : ''
-            }`}
-          >
-            {copiedJustNow ? 'Copied ✓' : 'Copy Dispatch'}
-          </button>
-        </div>
-
-        {/* Primary Next Action CTA */}
+        {/* Primary Crisp White CTA Pill (HotAndCold Style!) */}
         <button
           type="button"
           onClick={nextAction.onTrigger}
-          className={`w-full flex items-center justify-between px-5 py-3 rounded-2xl text-basalt-950 transition-colors cursor-pointer mb-2.5 ${
-            isPerfect
-              ? 'bg-jade hover:bg-jade-bright'
-              : 'bg-brass hover:bg-brass-bright'
-          }`}
+          className="w-full flex items-center justify-between px-5 py-3 rounded-full bg-white hover:bg-slate-100 text-slate-950 transition-colors cursor-pointer mb-2.5 shadow-lg"
         >
           <div className="flex flex-col text-left">
-            <span className="text-xs font-extrabold tracking-[0.16em] uppercase">
+            <span className="text-xs font-extrabold uppercase tracking-wide">
               {nextAction.label}
             </span>
-            <span className="text-[11px] font-medium opacity-80">
+            <span className="text-[11px] font-medium text-slate-600">
               {nextAction.sublabel}
             </span>
           </div>
@@ -421,30 +364,62 @@ export const ResultCard = memo(function ResultCard({
           </span>
         </button>
 
-        {/* Quiet Utility Links: Ranks + Replay + Codex */}
+        {/* Secondary Sharing Row: Post Score to Thread + Copy */}
+        <div className="grid grid-cols-2 gap-2 mb-2.5">
+          {isAuthenticated && (
+            <button
+              type="button"
+              disabled={postingComment || commentSharedToday}
+              onClick={() => void handlePostComment()}
+              className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-full border text-xs font-semibold transition-colors ${
+                commentSharedToday
+                  ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-300 cursor-default'
+                  : 'bg-[#141B2D] hover:bg-[#1C253D] border-white/15 text-white cursor-pointer'
+              }`}
+            >
+              {commentSharedToday
+                ? 'Posted to Thread ✓'
+                : postingComment
+                  ? 'Posting…'
+                  : 'Post Score'}
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => void handleCopyShare()}
+            className={`flex items-center justify-center py-2.5 px-3 rounded-full bg-[#141B2D] hover:bg-[#1C253D] border border-white/15 text-xs font-semibold text-white transition-colors cursor-pointer ${
+              !isAuthenticated ? 'col-span-2' : ''
+            }`}
+          >
+            {copiedJustNow ? 'Copied ✓' : 'Copy Result'}
+          </button>
+        </div>
+
+        {/* Clean Footer Links: Standings · Play Again · Vault */}
         <div className="grid grid-cols-3 gap-1.5">
           <button
             type="button"
             onClick={onOpenLeaderboard}
-            className="flex items-center justify-center py-2 px-2 rounded-xl bg-basalt-850/80 border border-white/8 hover:border-white/25 text-[11px] font-medium tracking-[0.1em] uppercase text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
+            className="flex items-center justify-center py-2 px-2 rounded-full bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer"
           >
-            Ranks
+            Standings
           </button>
 
           <button
             type="button"
             onClick={onReplay}
-            className="flex items-center justify-center py-2 px-2 rounded-xl bg-basalt-850/80 border border-white/8 hover:border-white/25 text-[11px] font-medium tracking-[0.1em] uppercase text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
+            className="flex items-center justify-center py-2 px-2 rounded-full bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer"
           >
-            Replay
+            Play Again
           </button>
 
           <button
             type="button"
             onClick={onOpenSanctum}
-            className="flex items-center justify-center py-2 px-2 rounded-xl bg-basalt-850/80 border border-white/8 hover:border-white/25 text-[11px] font-medium tracking-[0.1em] uppercase text-stone-300 hover:text-alabaster transition-colors cursor-pointer"
+            className="flex items-center justify-center py-2 px-2 rounded-full bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer"
           >
-            Codex
+            Jade Vault
           </button>
         </div>
       </div>

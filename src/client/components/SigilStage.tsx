@@ -228,6 +228,57 @@ export function SigilStage({
     };
   }, []);
 
+  // Desktop Fix: Non-passive wheel listener stops the Reddit page from scrolling
+  // whenever spinning the mouse wheel over an unlocked piece or during an active drag!
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+
+    const onNativeWheel = (ev: WheelEvent) => {
+      if (isComplete) return;
+
+      const targetEl = ev.target as Element | null;
+      const pieceGroup = targetEl?.closest?.('[data-piece-id]');
+      const hoveredPieceId = pieceGroup?.getAttribute('data-piece-id') ?? null;
+      const targetPieceId =
+        activeDragRef.current?.pieceId ?? hoveredPieceId;
+
+      if (!targetPieceId) return;
+
+      const pieceState = statesByIdRef.current.get(targetPieceId);
+      if (!pieceState || pieceState.locked) return;
+
+      // Block the browser from scrolling the Reddit feed!
+      if (ev.cancelable) {
+        ev.preventDefault();
+      }
+      ev.stopPropagation();
+
+      const now = performance.now();
+      if (now - wheelThrottleRef.current < 90) return;
+      wheelThrottleRef.current = now;
+
+      const direction: 1 | -1 = ev.deltaY > 0 ? 1 : -1;
+      if (
+        activeDragRef.current &&
+        activeDragRef.current.pieceId === targetPieceId
+      ) {
+        activeDragRef.current.liveRotationDeg = rotateAngleByStep(
+          activeDragRef.current.liveRotationDeg,
+          direction,
+          ROTATION_STEP_DEG
+        );
+        flushDragDomTransform(activeDragRef.current);
+      }
+      onRotatePiece(targetPieceId, direction);
+    };
+
+    svg.addEventListener('wheel', onNativeWheel, { passive: false });
+    return () => {
+      svg.removeEventListener('wheel', onNativeWheel);
+    };
+  }, [flushDragDomTransform, isComplete, onRotatePiece]);
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (isComplete) return;
@@ -506,29 +557,6 @@ export function SigilStage({
     [clearHalo, onCommitDrop, onRotatePiece, setRotatorSpringEnabled]
   );
 
-  const handlePieceWheel = useCallback(
-    (e: React.WheelEvent<SVGGElement>, pieceId: string) => {
-      const pieceState = statesByIdRef.current.get(pieceId);
-      if (!pieceState || pieceState.locked || isComplete) return;
-
-      const now = performance.now();
-      if (now - wheelThrottleRef.current < 95) return;
-      wheelThrottleRef.current = now;
-
-      const direction: 1 | -1 = e.deltaY > 0 ? 1 : -1;
-      if (activeDragRef.current && activeDragRef.current.pieceId === pieceId) {
-        activeDragRef.current.liveRotationDeg = rotateAngleByStep(
-          activeDragRef.current.liveRotationDeg,
-          direction,
-          ROTATION_STEP_DEG
-        );
-        flushDragDomTransform(activeDragRef.current);
-      }
-      onRotatePiece(pieceId, direction);
-    },
-    [flushDragDomTransform, isComplete, onRotatePiece]
-  );
-
   const handlePieceContextMenu = useCallback(
     (e: React.MouseEvent<SVGGElement>, pieceId: string) => {
       e.preventDefault();
@@ -745,7 +773,6 @@ export function SigilStage({
                 registerRotatorRef={registerRotatorRef}
                 registerHaloRef={registerHaloRef}
                 onPiecePointerDown={handlePiecePointerDown}
-                onPieceWheel={handlePieceWheel}
                 onPieceContextMenu={handlePieceContextMenu}
               />
             );
