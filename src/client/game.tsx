@@ -12,7 +12,7 @@ import {
 } from 'react';
 import { createRoot } from 'react-dom/client';
 import { calculateSigilScore } from '../shared/scoring';
-import type { LeaderboardRow, PuzzleCompletionStats } from '../shared/types';
+import type { PuzzleCompletionStats } from '../shared/types';
 import { LiveTimer } from './components/LiveTimer';
 import { ResultCard } from './components/ResultCard';
 import type { NextActionConfig } from './components/resultTypes';
@@ -35,11 +35,6 @@ import {
 } from './utils/apiClient';
 
 type CardView = 'play' | 'how-to-play' | 'archive' | 'leaderboard' | 'vault';
-
-function computeSpectrumPercent(entry: LeaderboardRow): number {
-  const clamped = Math.max(550, Math.min(1250, entry.score));
-  return Math.round(10 + ((clamped - 550) / 700) * 82);
-}
 
 export const App = () => {
   const { session, updateSession } = useSession();
@@ -1021,67 +1016,59 @@ export const App = () => {
               </button>
             </div>
 
-            {/* Cool Glass Mastery Spectrum Capsule (Live Alignment + Community Snoovatars!) */}
+            {/* Clean Live Reconstruction Progress Bar (Zero stuck M/S letter circles!) */}
             <button
               type="button"
               onClick={handleOpenLeaderboardView}
-              title="Click to view Challenge Standings"
-              className="group relative flex items-center gap-2.5 w-full px-3 py-2 rounded-2xl bg-[#0D121F]/90 hover:bg-[#12192B] border border-white/8 hover:border-white/18 transition-colors cursor-pointer"
+              title="View Challenge Standings"
+              className="group relative flex items-center gap-3 w-full px-3.5 py-2 rounded-2xl bg-[#0D121F]/90 hover:bg-[#12192B] border border-white/8 hover:border-white/18 transition-colors cursor-pointer"
             >
-              {/* Left Progress Counter Pill */}
+              {/* Left Live Step Counter */}
               <span className="text-[11px] font-bold text-sky-300 tabular-nums shrink-0">
-                {liveProgressPct}%
+                {completion.lockedCount}/{completion.totalCount}
               </span>
 
-              {/* Illuminated Track */}
-              <div className="relative flex-1 h-2 rounded-full bg-white/8 overflow-visible">
-                {/* Active Gradient Fill */}
-                <div
-                  style={{
-                    width: `${Math.max(entries.length > 0 ? 100 : liveProgressPct, liveProgressPct)}%`,
-                    opacity: entries.length > 0 && liveProgressPct === 0 ? 0.45 : 1,
-                  }}
-                  className="h-full rounded-full bg-gradient-to-r from-sky-400 via-amber-300 to-emerald-400 transition-all duration-300"
-                />
-
-                {/* Live Glowing Spark for Current Player's Stroke Progress */}
-                {!completion.isComplete && liveProgressPct > 0 && (
-                  <span
-                    style={{ left: `${liveProgressPct}%` }}
-                    className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.95)] border-2 border-sky-400 transition-all duration-300"
-                  />
+              {/* Clean Segmented Progress Track with ONE Moving Progress Dot */}
+              <div className="relative flex-1 h-2 rounded-full bg-white/8">
+                {/* Subtle Milestone Ticks for Each Stroke */}
+                {Array.from(
+                  { length: Math.max(0, completion.totalCount - 1) },
+                  (_, idx) => {
+                    const tickPct =
+                      ((idx + 1) / Math.max(1, completion.totalCount)) * 100;
+                    return (
+                      <span
+                        key={idx}
+                        style={{ left: `${tickPct}%` }}
+                        className="pointer-events-none absolute top-0 bottom-0 w-[1px] bg-[#06080F]/70 z-10"
+                      />
+                    );
+                  }
                 )}
 
-                {/* Community Snoovatars Standing Along the Track */}
-                {entries.slice(0, 7).map((entry) => (
-                  <div
-                    key={entry.username}
-                    style={{ left: `${computeSpectrumPercent(entry)}%` }}
-                    className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2"
-                  >
-                    {entry.snoovatarUrl ? (
-                      <img
-                        src={entry.snoovatarUrl}
-                        alt={`u/${entry.username}`}
-                        className="w-7 h-7 object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,0.95)] transition-transform group-hover:scale-110"
-                      />
-                    ) : (
-                      <span
-                        className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold text-slate-950 shadow-md ${
-                          entry.isPerfect ? 'bg-emerald-300' : 'bg-amber-300'
-                        }`}
-                      >
-                        {entry.username.slice(0, 1).toUpperCase()}
-                      </span>
-                    )}
-                  </div>
-                ))}
+                {/* Smooth Live Progress Fill (0% -> 100% strictly from YOUR placed strokes) */}
+                <div
+                  style={{ width: `${liveProgressPct}%` }}
+                  className="h-full rounded-full bg-gradient-to-r from-sky-400 via-teal-300 to-emerald-400 transition-all duration-300 ease-out"
+                />
+
+                {/* Single Glowing Progress Dot */}
+                <span
+                  style={{ left: `${liveProgressPct}%` }}
+                  className={`pointer-events-none absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white border-2 transition-all duration-300 ease-out z-20 ${
+                    completion.isComplete
+                      ? 'border-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.95)]'
+                      : 'border-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.85)]'
+                  }`}
+                />
               </div>
 
-              {/* Right Jade Mastery Badge */}
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-400/25 text-[10px] font-bold text-emerald-300 shrink-0">
+              {/* Right Standings & Jade Mastery Pill */}
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/15 group-hover:bg-emerald-500/25 border border-emerald-400/25 text-[11px] font-semibold text-emerald-300 transition-colors shrink-0">
                 <span>◈</span>
-                <span>Jade</span>
+                <span>
+                  {entries.length > 0 ? `${entries.length} Ranked` : 'Standings'}
+                </span>
               </span>
             </button>
           </footer>
