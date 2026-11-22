@@ -11,7 +11,7 @@ export const SoundToggleButton = memo(function SoundToggleButton() {
       aria-label={muted ? 'Unmute sound effects' : 'Mute sound effects'}
       aria-pressed={!muted}
       title={muted ? 'Unmute audio' : 'Mute audio'}
-      className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-[#111624] hover:bg-[#1A2236] border border-white/10 text-slate-200 transition-colors cursor-pointer"
+      className="inline-flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#111624] hover:bg-[#1A2236] border border-white/10 text-slate-200 transition-colors cursor-pointer"
     >
       {muted ? (
         <svg

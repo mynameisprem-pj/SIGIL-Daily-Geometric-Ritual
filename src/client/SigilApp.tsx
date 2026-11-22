@@ -477,7 +477,7 @@ export function SigilApp({ isExpanded }: { readonly isExpanded: boolean }) {
         touchAction: isExpanded ? 'none' : 'pan-y',
         fontFamily: "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif",
       }}
-      className="relative flex flex-col items-center justify-between w-full h-dvh min-h-[500px] bg-[#06080F] text-[#F8FAFC] px-4 py-3.5 sm:px-6 sm:py-4 overflow-hidden select-none"
+      className="relative flex flex-col items-center justify-between w-full h-dvh min-h-[440px] bg-[#06080F] text-[#F8FAFC] px-3.5 py-2.5 sm:px-6 sm:py-4 overflow-hidden select-none"
     >
       <div
         className="pointer-events-none absolute inset-0"
@@ -855,54 +855,56 @@ export function SigilApp({ isExpanded }: { readonly isExpanded: boolean }) {
       {activeView === 'play' && (
         <>
           <header className="z-20 w-full max-w-[490px] flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-[#162038] to-[#0D1322] border border-sky-400/25 shadow-[0_0_16px_rgba(56,189,248,0.12)] shrink-0">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <div className="hidden sm:flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-[#162038] to-[#0D1322] border border-sky-400/25 shadow-[0_0_16px_rgba(56,189,248,0.12)] shrink-0">
                 <span className="text-amber-300 text-base leading-none">◈</span>
               </div>
 
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm sm:text-base font-bold tracking-tight text-white truncate">
-                    {activeEntry.puzzle.name}
-                  </span>
-                  <span className="inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold bg-sky-500/15 text-sky-300 shrink-0">
+              <div className="min-w-0 flex-1">
+                <h1 className="text-[15px] sm:text-base font-bold tracking-tight text-white truncate leading-tight">
+                  {activeEntry.puzzle.name}
+                </h1>
+
+                <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-slate-400 truncate">
+                  <span className="font-semibold text-sky-300 shrink-0">
                     {headerSubtitle}
                   </span>
-                </div>
-                {!engine.hasInteracted && !completion.isComplete ? (
-                  <p className="text-xs font-medium text-sky-300/90 truncate">
-                    {mobileInlinePreview
-                      ? `${completion.totalCount} strokes · Tap board to play`
-                      : 'Tap piece to rotate · Drag into glowing center'}
-                  </p>
-                ) : (
-                  <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                    <span className="font-medium text-slate-200">
-                      {completion.lockedCount} of {completion.totalCount} placed
+                  <span className="text-slate-600">·</span>
+                  {!engine.hasInteracted && !completion.isComplete ? (
+                    <span className="text-slate-300 truncate">
+                      {mobileInlinePreview
+                        ? `${completion.totalCount} strokes`
+                        : 'Tap to rotate · Drag to center'}
                     </span>
-                    <span>·</span>
-                    <span>{engine.moves} moves</span>
-                    {activeMode !== 'zen' && (
-                      <>
-                        <span>·</span>
-                        <LiveTimer
-                          startedAtMs={engine.startedAtMs}
-                          completedAtMs={engine.completedAtMs}
-                        />
-                      </>
-                    )}
-                  </div>
-                )}
+                  ) : (
+                    <>
+                      <span className="font-medium text-slate-200 shrink-0">
+                        {completion.lockedCount}/{completion.totalCount}
+                      </span>
+                      <span className="text-slate-600">·</span>
+                      <span className="shrink-0">{engine.moves} mv</span>
+                      {activeMode !== 'zen' && (
+                        <>
+                          <span className="text-slate-600">·</span>
+                          <LiveTimer
+                            startedAtMs={engine.startedAtMs}
+                            completedAtMs={engine.completedAtMs}
+                          />
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
 
-            <div ref={menuRef} className="relative flex items-center gap-1.5 shrink-0">
+            <div ref={menuRef} className="relative flex items-center gap-1 sm:gap-1.5 shrink-0">
               <button
                 type="button"
                 onClick={() => setActiveView('how-to-play')}
                 aria-label="How to Play"
                 title="How to Play"
-                className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-[#111624] hover:bg-[#1A2236] border border-white/10 text-slate-200 transition-colors cursor-pointer"
+                className="inline-flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#111624] hover:bg-[#1A2236] border border-white/10 text-slate-200 transition-colors cursor-pointer"
               >
                 <svg viewBox="0 0 20 20" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.7">
                   <circle cx="10" cy="10" r="7.2" />
@@ -917,7 +919,7 @@ export function SigilApp({ isExpanded }: { readonly isExpanded: boolean }) {
                 onClick={() => setActiveView('archive')}
                 aria-label="Play the Archive"
                 title="Play the Archive"
-                className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-[#111624] hover:bg-[#1A2236] border border-white/10 text-slate-200 transition-colors cursor-pointer"
+                className="inline-flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#111624] hover:bg-[#1A2236] border border-white/10 text-slate-200 transition-colors cursor-pointer"
               >
                 <svg viewBox="0 0 20 20" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3.5" y="4.5" width="13" height="3" rx="0.8" />
@@ -930,7 +932,7 @@ export function SigilApp({ isExpanded }: { readonly isExpanded: boolean }) {
                 onClick={() => setMenuOpen((v) => !v)}
                 aria-label="Menu"
                 title="Menu"
-                className={`inline-flex items-center justify-center w-9 h-9 rounded-full border transition-colors cursor-pointer ${
+                className={`inline-flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-full border transition-colors cursor-pointer ${
                   menuOpen
                     ? 'bg-white text-slate-950 border-white'
                     : 'bg-[#111624] hover:bg-[#1A2236] border-white/10 text-slate-200'
@@ -942,7 +944,7 @@ export function SigilApp({ isExpanded }: { readonly isExpanded: boolean }) {
               </button>
 
               {menuOpen && (
-                <div className="absolute right-0 top-11 z-40 w-48 rounded-xl bg-[#111624]/98 border border-white/15 py-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.75)] backdrop-blur-md">
+                <div className="absolute right-0 top-10 z-40 w-48 rounded-xl bg-[#111624]/98 border border-white/15 py-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.75)] backdrop-blur-md">
                   {!isExpanded && (
                     <button
                       type="button"
@@ -1024,7 +1026,7 @@ export function SigilApp({ isExpanded }: { readonly isExpanded: boolean }) {
                   <button
                     type="button"
                     onClick={handleRequestExpand}
-                    className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#141B2D] hover:bg-[#1E2942] active:scale-95 border border-white/12 text-xs font-semibold text-white transition-all cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#141B2D] hover:bg-[#1E2942] active:scale-95 border border-white/12 text-xs font-semibold text-white transition-all cursor-pointer shrink-0"
                   >
                     <span>▶ Play Fullscreen</span>
                   </button>
@@ -1032,50 +1034,62 @@ export function SigilApp({ isExpanded }: { readonly isExpanded: boolean }) {
                   <div
                     role="group"
                     aria-label="Rotate piece 45 degrees"
-                    className="inline-flex items-center rounded-full bg-[#141B2D] border border-white/12 overflow-hidden"
+                    className="inline-flex items-center rounded-full bg-[#141B2D] border border-white/15 shrink-0 overflow-hidden"
                   >
                     <button
                       type="button"
                       onClick={(e) => handleRotateByDirection(-1, e)}
                       aria-label="Rotate counter-clockwise 45 degrees"
-                      title="Rotate Left 45° (Q / Left-side tap)"
-                      className="inline-flex items-center justify-center px-3 py-1.5 hover:bg-[#1E2942] active:bg-white/15 text-sm font-semibold text-white transition-colors cursor-pointer"
+                      title="Rotate Left 45°"
+                      className="inline-flex items-center justify-center w-9 h-8 hover:bg-[#1E2942] active:bg-white/15 text-white transition-colors cursor-pointer"
                     >
-                      ↺
+                      <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3.5 6.5V3h3.5" />
+                        <path d="M3.8 6.2A5.2 5.2 0 1 1 4.5 11.5" />
+                      </svg>
                     </button>
-                    <span className="px-1.5 text-[11px] font-semibold text-slate-400 select-none border-x border-white/8">
+
+                    <span className="px-2 text-[11px] font-bold text-slate-300 select-none border-x border-white/10">
                       45°
                     </span>
+
                     <button
                       type="button"
                       onClick={(e) => handleRotateByDirection(1, e)}
                       aria-label="Rotate clockwise 45 degrees"
-                      title="Rotate Right 45° (R / Right-side tap)"
-                      className="inline-flex items-center justify-center px-3 py-1.5 hover:bg-[#1E2942] active:bg-white/15 text-sm font-semibold text-white transition-colors cursor-pointer"
+                      title="Rotate Right 45°"
+                      className="inline-flex items-center justify-center w-9 h-8 hover:bg-[#1E2942] active:bg-white/15 text-white transition-colors cursor-pointer"
                     >
-                      ↻
+                      <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12.5 6.5V3H9" />
+                        <path d="M12.2 6.2A5.2 5.2 0 1 0 11.5 11.5" />
+                      </svg>
                     </button>
                   </div>
                 )
               ) : (
-                <span className="text-xs font-semibold text-emerald-300">
+                <span className="text-xs font-semibold text-emerald-300 shrink-0">
                   Sigil Reconstructed!
                 </span>
               )}
 
-              <span className="text-xs text-slate-400 truncate">
-                {solvesCount > 0
-                  ? `${jadeRate}% of ${solvesCount} ${solvesCount === 1 ? 'player' : 'players'} earned Jade`
-                  : `Par ${completion.parMoves} moves`}
-              </span>
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-xs font-medium text-slate-400 truncate">
+                  {solvesCount > 0
+                    ? `${jadeRate}% of ${solvesCount} earned Jade`
+                    : `Par ${completion.parMoves} moves`}
+                </span>
 
-              <button
-                type="button"
-                onClick={() => setActiveView('how-to-play')}
-                className="px-3.5 py-1.5 rounded-full bg-[#141B2D] hover:bg-[#1E2942] border border-white/10 text-xs font-semibold text-slate-200 transition-colors cursor-pointer shrink-0"
-              >
-                How to Play
-              </button>
+                {engine.hasInteracted && !completion.isComplete && !mobileInlinePreview && (
+                  <button
+                    type="button"
+                    onClick={handleScatterCurrent}
+                    className="px-3 py-1 rounded-full bg-[#141B2D] hover:bg-[#1E2942] border border-white/10 text-xs font-semibold text-slate-200 transition-colors cursor-pointer shrink-0"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
             </div>
 
             <button

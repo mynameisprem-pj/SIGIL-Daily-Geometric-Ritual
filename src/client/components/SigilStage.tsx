@@ -871,7 +871,7 @@ export function SigilStage({
   const svgTouchAction = isExpanded ? 'none' : 'pan-y';
 
   return (
-    <div className="relative flex items-center justify-center w-full max-w-[min(452px,calc(100dvh-146px))] aspect-square mx-auto">
+    <div className="relative flex items-center justify-center w-full max-w-[min(452px,calc(100dvh-164px))] aspect-square mx-auto">
       <svg
         ref={svgRef}
         viewBox={`0 0 ${STAGE_VIEWBOX_SIZE} ${STAGE_VIEWBOX_SIZE}`}
