@@ -1023,13 +1023,9 @@ export function SigilApp({ isExpanded }: { readonly isExpanded: boolean }) {
             <div className="flex items-center justify-between gap-2">
               {!completion.isComplete ? (
                 mobileInlinePreview ? (
-                  <button
-                    type="button"
-                    onClick={handleRequestExpand}
-                    className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#141B2D] hover:bg-[#1E2942] active:scale-95 border border-white/12 text-xs font-semibold text-white transition-all cursor-pointer shrink-0"
-                  >
-                    <span>▶ Play Fullscreen</span>
-                  </button>
+                  <span className="inline-flex items-center px-3 py-1 rounded-full bg-[#111624] border border-white/8 text-[11px] font-semibold text-slate-300 shrink-0">
+                    Par {completion.parMoves} moves
+                  </span>
                 ) : (
                   <div
                     role="group"
@@ -1077,7 +1073,9 @@ export function SigilApp({ isExpanded }: { readonly isExpanded: boolean }) {
                 <span className="text-xs font-medium text-slate-400 truncate">
                   {solvesCount > 0
                     ? `${jadeRate}% of ${solvesCount} earned Jade`
-                    : `Par ${completion.parMoves} moves`}
+                    : mobileInlinePreview
+                      ? 'Daily geometric puzzle'
+                      : `Par ${completion.parMoves} moves`}
                 </span>
 
                 {engine.hasInteracted && !completion.isComplete && !mobileInlinePreview && (

@@ -1086,16 +1086,20 @@ export function SigilStage({
         </g>
       </svg>
 
-      {/* Mobile Touch In-Feed 1-Tap Launch Veil (Zero Scroll-Trapping + Guaranteed Smooth Fullscreen Dragging!) */}
+      {/* Mobile Touch In-Feed 1-Tap Launch Veil (Anchored low so center rune shines unobstructed!) */}
       {mobileInlinePreview && onLaunchExpanded && (
         <button
           type="button"
           onClick={onLaunchExpanded}
-          style={{ touchAction: 'pan-y' }}
+          style={{
+            touchAction: 'pan-y',
+            background:
+              'linear-gradient(to top, rgba(6, 8, 15, 0.78) 0%, rgba(6, 8, 15, 0.16) 46%, rgba(6, 8, 15, 0) 100%)',
+          }}
           aria-label={`Play ${puzzle.name}`}
-          className="group absolute inset-0 z-20 flex flex-col items-center justify-center rounded-[28px] bg-[#06080F]/25 active:bg-[#06080F]/40 transition-colors cursor-pointer border-0 p-4"
+          className="group absolute inset-0 z-20 flex flex-col items-center justify-end pb-6 sm:pb-7 rounded-[28px] transition-opacity cursor-pointer border-0 px-4"
         >
-          <span className="inline-flex items-center gap-2.5 px-7 py-3.5 rounded-full bg-white group-active:scale-95 text-slate-950 text-sm font-extrabold tracking-wide shadow-[0_12px_36px_rgba(0,0,0,0.85),0_0_28px_rgba(255,255,255,0.22)] transition-transform">
+          <span className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-white group-active:scale-95 text-slate-950 text-sm font-extrabold tracking-wide shadow-[0_10px_32px_rgba(0,0,0,0.9),0_0_24px_rgba(255,255,255,0.2)] transition-transform">
             <svg
               viewBox="0 0 16 16"
               className="w-3.5 h-3.5 fill-current"
@@ -1104,9 +1108,6 @@ export function SigilStage({
               <path d="M4 2.5v11l9.5-5.5L4 2.5z" />
             </svg>
             <span>Tap to Play</span>
-          </span>
-          <span className="mt-2.5 px-3 py-1 rounded-full bg-[#0B0F1A]/90 border border-white/12 text-[11px] font-semibold text-slate-200 shadow-lg">
-            Opens smooth touch board
           </span>
         </button>
       )}
