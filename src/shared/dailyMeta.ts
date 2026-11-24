@@ -62,11 +62,34 @@ function nextInt(state: { s: number }, min: number, max: number): number {
   return min + Math.floor(nextMulberry(state) * (max - min + 1));
 }
 
+const DAILY_TITLE_HOOKS: readonly ((
+  sigilName: string,
+  pieceCount: 6 | 7 | 8
+) => string)[] = [
+  (name) => `Can you solve today's ${name} challenge?`,
+  (name) => `The ${name} is shattered — how fast can you forge it?`,
+  (name, count) => `${name} · ${count} strokes between you and a Jade Seal`,
+  (name) => `Step up to the astrolabe: ${name} awaits`,
+  (name) => `Think you can hit par on the ${name}?`,
+  (name) => `Today's geometric puzzle: Reconstruct the ${name}`,
+  (name) => `Only clean moves earn Jade on the ${name}`,
+  (name, count) => `${count} scattered pieces. One ${name}. Ready?`,
+  (name) => `Morning brain teaser: Piece together the ${name}`,
+  (name) => `Beat the subreddit average on today's ${name}!`,
+];
+
 function formatChallengePostTitle(
+  edition: number,
   editionTag: string,
-  sigilName: string
+  sigilName: string,
+  pieceCount: 6 | 7 | 8
 ): string {
-  return `Sigil ${editionTag} — Can you solve today's ${sigilName} challenge?`;
+  // Keep Edition #003 matching the already-published demo post title
+  if (edition <= 3) {
+    return `Sigil ${editionTag} — Can you solve today's ${sigilName} challenge?`;
+  }
+  const hookFn = DAILY_TITLE_HOOKS[edition % DAILY_TITLE_HOOKS.length]!;
+  return `Sigil ${editionTag} — ${hookFn(sigilName, pieceCount)}`;
 }
 
 export function resolveDailyPostSummary(dateKey: string): {
@@ -88,7 +111,7 @@ export function resolveDailyPostSummary(dateKey: string): {
       editionTag,
       pieceCount,
       sigilName,
-      postTitle: formatChallengePostTitle(editionTag, sigilName),
+      postTitle: formatChallengePostTitle(edition, editionTag, sigilName, pieceCount),
     };
   }
 
@@ -111,6 +134,6 @@ export function resolveDailyPostSummary(dateKey: string): {
     editionTag,
     pieceCount,
     sigilName,
-    postTitle: formatChallengePostTitle(editionTag, sigilName),
+    postTitle: formatChallengePostTitle(edition, editionTag, sigilName, pieceCount),
   };
 }
