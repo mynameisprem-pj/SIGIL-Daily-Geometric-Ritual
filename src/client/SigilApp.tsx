@@ -32,6 +32,20 @@ function detectTouchPrimaryDevice(): boolean {
   return navigator.maxTouchPoints > 0 && window.innerWidth < 900;
 }
 
+function formatStandingsDetail(moves: number, elapsedMs: number): string | null {
+  const parts: string[] = [];
+  if (moves > 0) parts.push(`${moves} mv`);
+  if (elapsedMs > 0) {
+    const secs = elapsedMs / 1000;
+    parts.push(
+      secs < 60
+        ? `${secs.toFixed(1)}s`
+        : `${Math.floor(secs / 60)}m ${String(Math.round(secs % 60)).padStart(2, '0')}s`
+    );
+  }
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
 export function SigilApp({ isExpanded }: { readonly isExpanded: boolean }) {
   const { session, updateSession } = useSession();
   const daily = useDailyPack(session?.dateKey, session?.username);
@@ -681,7 +695,7 @@ export function SigilApp({ isExpanded }: { readonly isExpanded: boolean }) {
           </h2>
           <p className="text-xs sm:text-sm text-slate-400 mt-0.5 mb-4">
             {solvesCount > 0
-              ? `${solvesCount} players finished · ${jadeRate}% earned a Jade Seal`
+              ? `${solvesCount} finished · ${jadeRate}% earned Jade · Ties broken by time`
               : 'Be the first player on the board today!'}
           </p>
 
@@ -691,43 +705,54 @@ export function SigilApp({ isExpanded }: { readonly isExpanded: boolean }) {
                 No scores recorded for Challenge #{pack.edition} yet.
               </div>
             ) : (
-              entries.map((row) => (
-                <div
-                  key={row.username}
-                  className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-[#10141F] border border-white/8"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="text-xs font-bold text-slate-400 w-6">
-                      #{row.rank}
-                    </span>
-                    {row.snoovatarUrl ? (
-                      <img
-                        src={row.snoovatarUrl}
-                        alt=""
-                        className="w-7 h-7 object-contain shrink-0"
-                      />
-                    ) : (
-                      <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-800 text-xs font-bold text-white shrink-0">
-                        {row.username.slice(0, 1).toUpperCase()}
+              entries.map((row) => {
+                const detail = formatStandingsDetail(row.moves, row.elapsedMs);
+                return (
+                  <div
+                    key={row.username}
+                    className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-[#10141F] border border-white/8"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-xs font-bold text-slate-400 w-6">
+                        #{row.rank}
                       </span>
-                    )}
-                    <span className="text-sm font-semibold text-white truncate">
-                      u/{row.username}
-                    </span>
-                    {row.isPerfect && (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300">
-                        Jade
+                      {row.snoovatarUrl ? (
+                        <img
+                          src={row.snoovatarUrl}
+                          alt=""
+                          className="w-7 h-7 object-contain shrink-0"
+                        />
+                      ) : (
+                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-800 text-xs font-bold text-white shrink-0">
+                          {row.username.slice(0, 1).toUpperCase()}
+                        </span>
+                      )}
+                      <span className="text-sm font-semibold text-white truncate">
+                        u/{row.username}
                       </span>
-                    )}
+                      {row.isPerfect && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 shrink-0">
+                          Jade
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col items-end shrink-0 ml-2">
+                      <div>
+                        <span className="text-sm font-bold text-white tabular-nums">
+                          {row.score}
+                        </span>
+                        <span className="text-xs text-slate-400 ml-1">pts</span>
+                      </div>
+                      {detail && (
+                        <span className="text-[11px] font-medium text-slate-400 tabular-nums leading-tight">
+                          {detail}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-right shrink-0">
-                    <span className="text-sm font-bold text-white">
-                      {row.score}
-                    </span>
-                    <span className="text-xs text-slate-400 ml-1">pts</span>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
 

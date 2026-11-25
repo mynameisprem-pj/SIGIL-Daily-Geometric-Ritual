@@ -6,7 +6,14 @@ const LAUNCH_SIGIL_NAMES = [
   'Obsidian Loom',
 ] as const;
 
-const ADJECTIVES = [
+const LAUNCH_SUBTITLES = [
+  'Order of the First Meridian',
+  'Sanctum of the Quiet Sun',
+  'Harmonic Basalt Archive',
+] as const;
+
+// Preserves exact published Reddit post names for Editions #004 and #005 ("Zenith Covenant")
+const LEGACY_ADJECTIVES = [
   'Solstice',
   'Obsidian',
   'Vernal',
@@ -25,7 +32,7 @@ const ADJECTIVES = [
   'Runic',
 ] as const;
 
-const ARTIFACTS = [
+const LEGACY_ARTIFACTS = [
   'Astrolabe',
   'Compass',
   'Loom',
@@ -40,6 +47,73 @@ const ARTIFACTS = [
   'Mandala',
   'Crucible',
   'Reliquary',
+] as const;
+
+// 25 Adjectives x 24 Artifacts (gcd(25, 24) = 1 => 600-day bijection with zero repeats)
+const ADJECTIVES_25 = [
+  'Solstice',
+  'Obsidian',
+  'Vernal',
+  'Celestial',
+  'Astral',
+  'Meridian',
+  'Aureate',
+  'Sideral',
+  'Boreal',
+  'Equinox',
+  'Nocturne',
+  'Halcyon',
+  'Valkyrie',
+  'Zenith',
+  'Alabaster',
+  'Runic',
+  'Gilded',
+  'Lunar',
+  'Crimson',
+  'Sovereign',
+  'Radiant',
+  'Cobalt',
+  'Empyrean',
+  'Verdant',
+  'Arcane',
+] as const;
+
+const ARTIFACTS_24 = [
+  'Astrolabe',
+  'Compass',
+  'Loom',
+  'Seal',
+  'Wayfinder',
+  'Monolith',
+  'Key',
+  'Sextant',
+  'Diadem',
+  'Covenant',
+  'Cadence',
+  'Mandala',
+  'Crucible',
+  'Reliquary',
+  'Prism',
+  'Orrery',
+  'Sanctum',
+  'Talisman',
+  'Beacon',
+  'Dial',
+  'Aegis',
+  'Pendulum',
+  'Crest',
+  'Cipher',
+] as const;
+
+const ORDERS = [
+  'Order of the First Meridian',
+  'Sixfold Cartographer Guild',
+  'Harmonic Basalt Archive',
+  'Sanctum of the Quiet Sun',
+  'Vault of Celestial Lapidary',
+  'Foundry of the Polestar',
+  'Codex of Measured Light',
+  'Observatory of the Eighth Wind',
 ] as const;
 
 function hashSeed(seed: string): number {
@@ -62,20 +136,100 @@ function nextInt(state: { s: number }, min: number, max: number): number {
   return min + Math.floor(nextMulberry(state) * (max - min + 1));
 }
 
+function pickBijectiveIdentity(slot: number): {
+  name: string;
+  subtitle: string;
+} {
+  const safeSlot = ((slot % 600) + 600) % 600;
+  // gcd(7, 25) = 1 and gcd(11, 24) = 1 => 600 unique names, zero consecutive adj/noun repeats
+  const adjIdx = (safeSlot * 7 + 3) % ADJECTIVES_25.length;
+  const nounIdx = (safeSlot * 11 + 5) % ARTIFACTS_24.length;
+  const orderIdx = (safeSlot * 3 + 1) % ORDERS.length;
+  return {
+    name: `${ADJECTIVES_25[adjIdx]!} ${ARTIFACTS_24[nounIdx]!}`,
+    subtitle: ORDERS[orderIdx]!,
+  };
+}
+
+/**
+ * Single deterministic source of truth for Sigil names across server post titles
+ * and client puzzle synthesis (immune to geometry quality-gate retries).
+ */
+export function resolveSigilIdentity(seed: string): {
+  name: string;
+  subtitle: string;
+} {
+  const dailyMatch = /^sigil:v1:(\d{4}-\d{2}-\d{2}):(daily|bonus-1|bonus-2)$/.exec(
+    seed
+  );
+
+  if (dailyMatch) {
+    const dateKey = dailyMatch[1]!;
+    const variant = dailyMatch[2]!;
+    const edition = getEditionNumber(dateKey);
+
+    if (variant === 'daily') {
+      if (edition >= 1 && edition <= LAUNCH_SIGIL_NAMES.length) {
+        return {
+          name: LAUNCH_SIGIL_NAMES[edition - 1]!,
+          subtitle: LAUNCH_SUBTITLES[edition - 1]!,
+        };
+      }
+      // Keep already-published Editions #004 and #005 ("Zenith Covenant") matched to live Reddit titles
+      if (edition === 4 || edition === 5) {
+        const state = { s: hashSeed(seed) };
+        nextInt(state, 32, 40);
+        nextInt(state, 68, 76);
+        nextInt(state, 112, 120);
+        const adj =
+          LEGACY_ADJECTIVES[nextInt(state, 0, LEGACY_ADJECTIVES.length - 1)]!;
+        const noun =
+          LEGACY_ARTIFACTS[nextInt(state, 0, LEGACY_ARTIFACTS.length - 1)]!;
+        const subtitle = ORDERS[nextInt(state, 0, ORDERS.length - 1)]!;
+        return { name: `${adj} ${noun}`, subtitle };
+      }
+      return pickBijectiveIdentity(edition);
+    }
+
+    if (variant === 'bonus-1') {
+      return pickBijectiveIdentity(edition + 200);
+    }
+    return pickBijectiveIdentity(edition + 400);
+  }
+
+  const preludeMatch = /^sigil:v1:prelude:prelude-(\d+)$/.exec(seed);
+  if (preludeMatch) {
+    return pickBijectiveIdentity(540 + Number(preludeMatch[1]));
+  }
+
+  return pickBijectiveIdentity(hashSeed(`${seed}:identity`) % 600);
+}
+
+// 20 varied daily post hooks cycled with coprime stride (gcd(7, 20) = 1 => 20 days without repeats)
 const DAILY_TITLE_HOOKS: readonly ((
   sigilName: string,
   pieceCount: 6 | 7 | 8
 ) => string)[] = [
-  (name) => `Can you solve today's ${name} challenge?`,
-  (name) => `The ${name} is shattered — how fast can you forge it?`,
-  (name, count) => `${name} · ${count} strokes between you and a Jade Seal`,
-  (name) => `Step up to the astrolabe: ${name} awaits`,
-  (name) => `Think you can hit par on the ${name}?`,
-  (name) => `Today's geometric puzzle: Reconstruct the ${name}`,
-  (name) => `Only clean moves earn Jade on the ${name}`,
-  (name, count) => `${count} scattered pieces. One ${name}. Ready?`,
-  (name) => `Morning brain teaser: Piece together the ${name}`,
-  (name) => `Beat the subreddit average on today's ${name}!`,
+  (name, n) => `The ${name} lies in ${n} pieces — can you beat par?`,
+  (name) => `Two minutes of calm geometry: Reconstruct the ${name}`,
+  (name, n) => `${n} scattered strokes. One ${name}. Can you earn Jade?`,
+  (name) => `Step up to the astrolabe — today's ${name} is live`,
+  (name) => `Only clean moves forge a Jade Seal on the ${name}`,
+  (name, n) => `Daily spatial ritual: Lock all ${n} strokes of the ${name}`,
+  (name) => `Think you can solve the ${name} within +2 moves of par?`,
+  (name, n) => `Rotate. Align. Snap. Today's ${n}-stroke ${name} awaits`,
+  (name) => `Morning geometry check: How fast can you forge the ${name}?`,
+  (name) => `Today's seal is shattered — piece together the ${name}`,
+  (name, n) => `${name} (${n} Strokes) — Claim your spot on today's standings`,
+  (name) => `Precision over speed: Can you master the ${name}?`,
+  (name, n) => `Every stroke has a home. Reconstruct the ${n}-piece ${name}`,
+  (name) => `A fresh astrolabe trial: Unlock Jade on the ${name}`,
+  (name, n) => `Can you read the blueprint? ${n} strokes form the ${name}`,
+  (name) => `Coffee & geometry: Take on today's ${name} challenge`,
+  (name, n) => `${n} stone strokes stand between you and the ${name}`,
+  (name) => `Put your spatial eye to the test on the ${name}`,
+  (name) => `Beat the subreddit average on the shattered ${name}`,
+  (name, n) => `Grand Astrolabe Trial: Assemble the ${n}-stroke ${name}`,
 ];
 
 function formatChallengePostTitle(
@@ -84,11 +238,11 @@ function formatChallengePostTitle(
   sigilName: string,
   pieceCount: 6 | 7 | 8
 ): string {
-  // Keep Edition #003 matching the already-published demo post title
   if (edition <= 3) {
     return `Sigil ${editionTag} — Can you solve today's ${sigilName} challenge?`;
   }
-  const hookFn = DAILY_TITLE_HOOKS[edition % DAILY_TITLE_HOOKS.length]!;
+  const hookIdx = (edition * 7) % DAILY_TITLE_HOOKS.length;
+  const hookFn = DAILY_TITLE_HOOKS[hookIdx]!;
   return `Sigil ${editionTag} — ${hookFn(sigilName, pieceCount)}`;
 }
 
@@ -103,15 +257,22 @@ export function resolveDailyPostSummary(dateKey: string): {
   const editionTag = `#${String(edition).padStart(3, '0')}`;
 
   if (edition >= 1 && edition <= LAUNCH_SIGIL_NAMES.length) {
-    const sigilName = LAUNCH_SIGIL_NAMES[edition - 1]!;
     const launchCounts: readonly (6 | 7 | 8)[] = [6, 7, 8];
     const pieceCount = launchCounts[edition - 1] ?? 6;
+    const { name: sigilName } = resolveSigilIdentity(
+      `sigil:v1:${dateKey}:daily`
+    );
     return {
       edition,
       editionTag,
       pieceCount,
       sigilName,
-      postTitle: formatChallengePostTitle(edition, editionTag, sigilName, pieceCount),
+      postTitle: formatChallengePostTitle(
+        edition,
+        editionTag,
+        sigilName,
+        pieceCount
+      ),
     };
   }
 
@@ -119,21 +280,18 @@ export function resolveDailyPostSummary(dateKey: string): {
   const pieceCount: 6 | 7 | 8 =
     dow === 1 || dow === 2 ? 6 : dow === 3 || dow === 4 || dow === 5 ? 7 : 8;
 
-  const state = { s: hashSeed(`sigil:v1:${dateKey}:daily`) };
-  // Consume the 3 ring-radius RNG steps to match client generator title sequence
-  nextInt(state, 32, 40);
-  nextInt(state, 68, 76);
-  nextInt(state, 112, 120);
-
-  const adj = ADJECTIVES[nextInt(state, 0, ADJECTIVES.length - 1)]!;
-  const noun = ARTIFACTS[nextInt(state, 0, ARTIFACTS.length - 1)]!;
-  const sigilName = `${adj} ${noun}`;
+  const { name: sigilName } = resolveSigilIdentity(`sigil:v1:${dateKey}:daily`);
 
   return {
     edition,
     editionTag,
     pieceCount,
     sigilName,
-    postTitle: formatChallengePostTitle(edition, editionTag, sigilName, pieceCount),
+    postTitle: formatChallengePostTitle(
+      edition,
+      editionTag,
+      sigilName,
+      pieceCount
+    ),
   };
 }
