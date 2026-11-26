@@ -46,6 +46,33 @@ function formatStandingsDetail(moves: number, elapsedMs: number): string | null 
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
+function PlayerAvatar({
+  username,
+  snoovatarUrl,
+}: {
+  username: string;
+  snoovatarUrl: string | null | undefined;
+}) {
+  const [failed, setFailed] = useState(false);
+
+  if (snoovatarUrl && !failed) {
+    return (
+      <img
+        src={snoovatarUrl}
+        alt=""
+        onError={() => setFailed(true)}
+        className="w-7 h-7 object-contain shrink-0"
+      />
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-800 text-xs font-bold text-white shrink-0">
+      {username.slice(0, 1).toUpperCase()}
+    </span>
+  );
+}
+
 export function SigilApp({ isExpanded }: { readonly isExpanded: boolean }) {
   const { session, updateSession } = useSession();
   const daily = useDailyPack(session?.dateKey, session?.username);
@@ -716,17 +743,10 @@ export function SigilApp({ isExpanded }: { readonly isExpanded: boolean }) {
                       <span className="text-xs font-bold text-slate-400 w-6">
                         #{row.rank}
                       </span>
-                      {row.snoovatarUrl ? (
-                        <img
-                          src={row.snoovatarUrl}
-                          alt=""
-                          className="w-7 h-7 object-contain shrink-0"
-                        />
-                      ) : (
-                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-800 text-xs font-bold text-white shrink-0">
-                          {row.username.slice(0, 1).toUpperCase()}
-                        </span>
-                      )}
+                      <PlayerAvatar
+                        username={row.username}
+                        snoovatarUrl={row.snoovatarUrl}
+                      />
                       <span className="text-sm font-semibold text-white truncate">
                         u/{row.username}
                       </span>

@@ -41,7 +41,7 @@ const Keys = {
   dailyAggregates: (dateKey: string) => `sigil:daily:${dateKey}:agg`,
   postSharedByUser: (postId: string, username: string) =>
     `sigil:post:${postId}:shared:${username}`,
-  snoovatarCache: (username: string) => `sigil:snoovatar:${username}`,
+  snoovatarCache: (username: string) => `sigil:snoovatar:v2:${username}`,
 } as const;
 
 function parseProfileHash(
@@ -196,12 +196,15 @@ async function resolveSnoovatarUrl(username: string): Promise<string | null> {
   const cacheKey = Keys.snoovatarCache(username);
   try {
     const cached = await redis.get(cacheKey);
-    if (cached !== undefined) {
-      return cached === 'NONE' ? null : cached;
+    if (cached && cached !== 'NONE') {
+      return cached;
     }
     const url = await reddit.getSnoovatarUrl(username);
-    await redis.set(cacheKey, url ?? 'NONE');
-    return url ?? null;
+    if (url) {
+      await redis.set(cacheKey, url);
+      return url;
+    }
+    return null;
   } catch {
     return null;
   }
